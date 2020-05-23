@@ -21,14 +21,15 @@ public class QTOB {
     public static void main(String[] args) {
         final ActorSystem akka = ActorSystem.create("QTOB");
         
+        // Create client actors
         List<ActorRef> clients = new ArrayList<>();
-        for (int i=0; i < N_CLIENTS; i++) {
-            // Add clients to ArrayList
-        }
+        for (int i=0; i < N_CLIENTS; i++)
+            clients.add(akka.actorOf(ClientActor.props(i)));
         
+        // Create replica actors
         List<ActorRef> replicas = new ArrayList<>();
         for (int i=0; i < N_CLIENTS; i++) {
-            // Add replicas to ArrayList
+            ;
         }
         
         
