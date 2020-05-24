@@ -35,11 +35,11 @@ public class QTOB {
         
         // Handle termination
         try {
-          System.out.println(">>> Press ENTER to exit <<<");
-          System.in.read();
+			System.out.println(">>> Press ENTER to exit <<<");
+			System.in.read();
         }
         catch (IOException ioe) {
-            System.out.println("Exiting...");
+			System.out.println("Exiting...");
         }
         akka.terminate();
     }
