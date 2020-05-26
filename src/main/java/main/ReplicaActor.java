@@ -48,7 +48,11 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onWriteRequest(WriteRequest req) {
-        System.err.println("TODO: reply to WriteRequest");
+        req.client.tell(
+            new WriteResponse(),
+            getSelf()
+        );
+        System.out.println("TODO: Actually handle write request");
     }
     
     @Override

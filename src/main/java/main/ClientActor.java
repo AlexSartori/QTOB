@@ -18,7 +18,7 @@ import scala.concurrent.duration.Duration;
 public class ClientActor extends AbstractActor {
     private final int id;
     private final List replicas;
-    private Random rng;
+    private final Random rng;
     
     public ClientActor(int id) {
         this.id = id;
@@ -86,12 +86,17 @@ public class ClientActor extends AbstractActor {
         System.out.println("Client " + this.id + " read done " + res.value);
     }
     
+    private void onWriteResponse(WriteResponse res) {
+        System.out.println("Client " + this.id + " update done");
+    }
+    
     @Override
     public Receive createReceive() {
         return receiveBuilder()
             .match(JoinGroupMsg.class, this::onJoinGroup)
             .match(RequestTimer.class, this::onRequestTimer)
             .match(ReadResponse.class, this::onReadResponse)
+            .match(WriteResponse.class, this::onWriteResponse)
             .build();
     }
     
