@@ -15,8 +15,8 @@ import main.Messages.*;
 public class QTOB {
     final static int N_CLIENTS = 10;
     final static int N_REPLICAS = 10;
-    final static int MAX_NWK_DELAY_MS = 200;
-    final static int CRASH_TIMEOUT_MS = MAX_NWK_DELAY_MS + 50;
+    final static int MAX_NWK_DELAY_MS = 500;
+    final static int CRASH_TIMEOUT_MS = MAX_NWK_DELAY_MS + 100;
     
     
     public static void main(String[] args) {

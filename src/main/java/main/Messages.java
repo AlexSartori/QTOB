@@ -26,4 +26,14 @@ public class Messages {
             this.client = client;
         }
     }
+    
+    public static class WriteRequest implements Serializable {
+        private ActorRef client;
+        private int new_value;
+        
+        public WriteRequest(ActorRef client, int new_value) {
+            this.client = client;
+            this.new_value = new_value;
+        }
+    }
 }

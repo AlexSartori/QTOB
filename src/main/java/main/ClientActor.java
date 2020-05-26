@@ -72,10 +72,15 @@ public class ClientActor extends AbstractActor {
                 getSelf()
             );
             
-            System.out.println("Client " + this.id + " read request to " + destination_id);
+            System.out.println("Client " + this.id + " read req to " + destination_id);
         } else {
             // Send write request
-            System.err.println("Write requests not implemented");
+            destination.tell(
+                new WriteRequest(getSelf(), this.rng.nextInt()),
+                getSelf()
+            );
+            
+            System.out.println("Client " + this.id + " write req to " + destination_id);
         }
     }
     

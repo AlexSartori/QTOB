@@ -41,7 +41,11 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onReadRequest(ReadRequest req) {
-        System.out.println("Replica " + this.replicaID + " read done " + this.v);
+        System.err.println("TODO: reply to ReadRequest");
+    }
+    
+    private void onWriteRequest(WriteRequest req) {
+        System.err.println("TODO: reply to WriteRequest");
     }
     
     @Override
@@ -49,6 +53,7 @@ public class ReplicaActor extends AbstractActor {
         return receiveBuilder()
             .match(JoinGroupMsg.class, this::onJoinGroup)
             .match(ReadRequest.class, this::onReadRequest)
+            .match(WriteRequest.class, this::onWriteRequest)
             .build();
     }
     
