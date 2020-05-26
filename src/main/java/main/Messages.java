@@ -20,16 +20,24 @@ public class Messages {
     }
       
     public static class ReadRequest implements Serializable {
-        private ActorRef client;
+        public final ActorRef client;
         
         public ReadRequest(ActorRef client) {
             this.client = client;
         }
     }
     
+    public static class ReadResponse implements Serializable {
+        public final int value;
+        
+        public ReadResponse(int v) {
+            this.value = v;
+        }
+    }
+    
     public static class WriteRequest implements Serializable {
-        private ActorRef client;
-        private int new_value;
+        public final ActorRef client;
+        public final int new_value;
         
         public WriteRequest(ActorRef client, int new_value) {
             this.client = client;

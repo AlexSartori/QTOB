@@ -71,7 +71,6 @@ public class ClientActor extends AbstractActor {
                 new ReadRequest(getSelf()),
                 getSelf()
             );
-            
             System.out.println("Client " + this.id + " read req to " + destination_id);
         } else {
             // Send write request
@@ -79,9 +78,12 @@ public class ClientActor extends AbstractActor {
                 new WriteRequest(getSelf(), this.rng.nextInt()),
                 getSelf()
             );
-            
             System.out.println("Client " + this.id + " write req to " + destination_id);
         }
+    }
+    
+    private void onReadResponse(ReadResponse res) {
+        System.out.println("Client " + this.id + " read done " + res.value);
     }
     
     @Override
@@ -89,9 +91,10 @@ public class ClientActor extends AbstractActor {
         return receiveBuilder()
             .match(JoinGroupMsg.class, this::onJoinGroup)
             .match(RequestTimer.class, this::onRequestTimer)
+            .match(ReadResponse.class, this::onReadResponse)
             .build();
     }
     
     // ========================================================================= Message classes
-    public static class RequestTimer implements Serializable { }
+    private static class RequestTimer implements Serializable { }
 }

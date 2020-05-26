@@ -41,7 +41,10 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onReadRequest(ReadRequest req) {
-        System.err.println("TODO: reply to ReadRequest");
+        req.client.tell(
+            new ReadResponse(this.v),
+            getSelf()
+        );
     }
     
     private void onWriteRequest(WriteRequest req) {
