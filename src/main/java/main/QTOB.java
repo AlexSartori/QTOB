@@ -5,6 +5,7 @@ import akka.actor.ActorSystem;
 import java.util.List;
 import java.util.ArrayList;
 import java.io.IOException;
+import main.Messages.*;
 
 
 /**
@@ -28,18 +29,27 @@ public class QTOB {
         
         // Create replica actors
         List<ActorRef> replicas = new ArrayList<>();
-        for (int i=0; i < N_CLIENTS; i++) {
-            ;
-        }
+        for (int i=0; i < N_REPLICAS; i++)
+            replicas.add(akka.actorOf(ReplicaActor.props(null, i, 0)));
+        
+        
+        
+        // Make everyone aware of the group
+        JoinGroupMsg msg = new Messages.JoinGroupMsg(replicas);
+        for (ActorRef r : replicas)
+            r.tell(msg, ActorRef.noSender());
+        for (ActorRef c : clients)
+            c.tell(msg, ActorRef.noSender());
+        
         
         
         // Handle termination
         try {
-			System.out.println(">>> Press ENTER to exit <<<");
-			System.in.read();
+            System.out.println(">>> Press ENTER to exit <<<");
+            System.in.read();
         }
         catch (IOException ioe) {
-			System.out.println("Exiting...");
+            System.out.println("Exiting...");
         }
         akka.terminate();
     }
