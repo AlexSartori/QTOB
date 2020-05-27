@@ -13,8 +13,8 @@ import main.Messages.*;
  * @author alex
  */
 public class QTOB {
-    final static int N_CLIENTS = 10;
-    final static int N_REPLICAS = 10;
+    final static int N_CLIENTS = 2;
+    final static int N_REPLICAS = 2;
     final static int MAX_NWK_DELAY_MS = 200;
     final static int CRASH_TIMEOUT_MS = MAX_NWK_DELAY_MS + 100;
     
@@ -33,7 +33,7 @@ public class QTOB {
         // Create replica actors
         List<ActorRef> replicas = new ArrayList<>();
         for (int i=0; i < N_REPLICAS; i++) {
-            replicas.add(akka.actorOf(ReplicaActor.props(null, i, 0)));
+            replicas.add(akka.actorOf(ReplicaActor.props(i, 0)));
 		}
         
         

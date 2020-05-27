@@ -13,27 +13,42 @@ import main.Messages.*;
  * @author alex
  */
 public class ReplicaActor extends AbstractActor {
-    private final int replicaID;
-    private final List peers;
-    private final ActorRef coordinator;
+	private final int replicaID;
     private int v;
+	
+    private final List<ActorRef> peers;
+    private ActorRef coordinator;
+	
+	private boolean electing;	// election in progress
 
-    private final Map<Integer, Update> Updatehistory;
+    private final Map<Integer, Update> UpdatesHistory;
 
     /*-- Actor constructors --------------------------------------------------- */
-    public ReplicaActor(ActorRef coordinator, int ID, int value) {
+	
+    public ReplicaActor(int ID, int value) {
             this.replicaID = ID;
             this.peers = new ArrayList<>();
             this.v = value;
-            this.coordinator = coordinator;
-            this.Updatehistory = new HashMap<>();
+            this.coordinator = null;
+            this.UpdatesHistory = new HashMap<>();
+			this.electing = true;	// at the beginning, there's no coordinator
     }
 
-    static public Props props(ActorRef coordinator, int ID, int value) {
-            return Props.create(ReplicaActor.class, () -> new ReplicaActor(coordinator, ID, value));
+    static public Props props(int ID, int value) {
+            return Props.create(ReplicaActor.class, () -> new ReplicaActor(ID, value));
     }
 
-    private void onJoinGroup(JoinGroupMsg msg) {
+	/*-- Actor logic ---------------------------------------------------------- */
+
+	@Override
+	public void preStart() {
+		if (this.electing) {
+			System.out.println("replicas now: " + this.peers.size());
+			// election, but you don't have the peers yet
+		}
+	}
+	
+	private void onJoinGroup(JoinGroupMsg msg) {
         for (ActorRef r : msg.group) {
             if (!r.equals(getSelf())) {
                 this.peers.add(r);
@@ -42,26 +57,42 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onReadRequest(ReadRequest req) {
-        req.client.tell(
-            new ReadResponse(this.v),
-            getSelf()
-        );
+        while (!this.electing) {
+			req.client.tell(
+	            new ReadResponse(this.v),
+	            getSelf()
+	        );
+		}
     }
     
     private void onWriteRequest(WriteRequest req) {
-        req.client.tell(
-            new WriteResponse(),
-            getSelf()
-        );
-        System.out.println("TODO: Actually handle write request");
-    }
-    
+        while (!this.electing) {
+			req.client.tell(
+	            new WriteResponse(),
+	            getSelf()
+	        );
+	        System.out.println("TODO: Actually handle write request");
+	    }
+	}
+
+	private void onElection (Election election) {
+		if (election.predecessorID==this.replicaID) {
+			
+		}
+	}
+	
+	private void onSynchronization (Synchronization synch) {
+		
+	}
+	
     @Override
     public Receive createReceive() {
         return receiveBuilder()
             .match(JoinGroupMsg.class, this::onJoinGroup)
             .match(ReadRequest.class, this::onReadRequest)
             .match(WriteRequest.class, this::onWriteRequest)
+			.match(Election.class, this::onElection)
+			.match(Synchronization.class, this::onSynchronization)
             .build();
     }
     

@@ -47,11 +47,7 @@ public class ClientActor extends AbstractActor {
     }
     
     private void onJoinGroup(JoinGroupMsg msg) {
-        for (ActorRef r : msg.group) {
-            if (!r.equals(getSelf())) {
-                this.replicas.add(r);
-			}
-		}
+		this.replicas.addAll(msg.group);
     }
     
     private void onRequestTimer(RequestTimer req) {
