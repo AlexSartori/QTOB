@@ -15,9 +15,8 @@ import main.Messages.*;
 public class ReplicaActor extends AbstractActor {
     private final int replicaID;
     private final List peers;
-    // sarà final?
-    private int v;
     private final ActorRef coordinator;
+    private int v;
 
     private final Map<Integer, Update> Updatehistory;
 
@@ -35,9 +34,11 @@ public class ReplicaActor extends AbstractActor {
     }
 
     private void onJoinGroup(JoinGroupMsg msg) {
-        for (ActorRef r : msg.group)
-            if (!r.equals(getSelf()))
+        for (ActorRef r : msg.group) {
+            if (!r.equals(getSelf())) {
                 this.peers.add(r);
+			}
+		}
     }
     
     private void onReadRequest(ReadRequest req) {

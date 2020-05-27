@@ -16,12 +16,12 @@ import scala.concurrent.duration.Duration;
  * @author alex
  */
 public class ClientActor extends AbstractActor {
-    private final int id;
+    private final int clientID;
     private final List replicas;
     private final Random rng;
     
     public ClientActor(int id) {
-        this.id = id;
+        this.clientID = id;
         this.replicas = new ArrayList<>();
         this.rng = new Random();
     }
@@ -47,12 +47,16 @@ public class ClientActor extends AbstractActor {
     }
     
     private void onJoinGroup(JoinGroupMsg msg) {
-        for (ActorRef r : msg.group)
-            if (!r.equals(getSelf()))
+        for (ActorRef r : msg.group) {
+            if (!r.equals(getSelf())) {
                 this.replicas.add(r);
+			}
+		}
     }
     
     private void onRequestTimer(RequestTimer req) {
+		
+		// pick a random replica
         int destination_id = this.rng.nextInt(this.replicas.size());
         ActorRef destination = (ActorRef)this.replicas.get(
             destination_id
@@ -71,23 +75,23 @@ public class ClientActor extends AbstractActor {
                 new ReadRequest(getSelf()),
                 getSelf()
             );
-            System.out.println("Client " + this.id + " read req to " + destination_id);
+            System.out.println("Client " + this.clientID + " read req to " + destination_id);
         } else {
             // Send write request
             destination.tell(
                 new WriteRequest(getSelf(), this.rng.nextInt()),
                 getSelf()
             );
-            System.out.println("Client " + this.id + " write req to " + destination_id);
+            System.out.println("Client " + this.clientID + " write req to " + destination_id);
         }
     }
     
     private void onReadResponse(ReadResponse res) {
-        System.out.println("Client " + this.id + " read done " + res.value);
+        System.out.println("Client " + this.clientID + " read done " + res.value);
     }
     
     private void onWriteResponse(WriteResponse res) {
-        System.out.println("Client " + this.id + " update done");
+        System.out.println("Client " + this.clientID + " update done");
     }
     
     @Override

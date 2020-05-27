@@ -12,7 +12,7 @@ import java.util.List;
  */
 public class Messages {
     public static class JoinGroupMsg implements Serializable {
-        public final List<ActorRef> group;
+        public final List<ActorRef> group;  // an array of group members
         
         public JoinGroupMsg(List<ActorRef> group) {
             this.group = Collections.unmodifiableList(new ArrayList<>(group));
@@ -20,7 +20,7 @@ public class Messages {
     }
       
     public static class ReadRequest implements Serializable {
-        public final ActorRef client;
+        public final ActorRef client;	// the client asking to read
         
         public ReadRequest(ActorRef client) {
             this.client = client;
@@ -28,7 +28,7 @@ public class Messages {
     }
     
     public static class ReadResponse implements Serializable {
-        public final int value;
+        public final int value;	  // the value requested for reading
         
         public ReadResponse(int v) {
             this.value = v;
