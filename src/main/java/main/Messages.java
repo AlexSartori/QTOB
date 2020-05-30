@@ -19,24 +19,24 @@ public class Messages {
         }
     }
       
-	public static class Election implements Serializable {
+    public static class Election implements Serializable {
         public final Update last_update;
-		public final int predecessorID;
+        public final int predecessorID;
         
         public Election(Update update, int id) {
             this.last_update = update;
-			this.predecessorID = id;
+            this.predecessorID = id;
         }
     }
 	
-	public static class Synchronization implements Serializable {
-		// updates missed by other replicas to be sent
-		public final ActorRef new_coordinator;
-		
-		public Synchronization(ActorRef coordinator) {
-			this.new_coordinator = coordinator;
-		}
-	}
+    public static class Synchronization implements Serializable {
+        // updates missed by other replicas to be sent
+        public final ActorRef new_coordinator;
+
+        public Synchronization(ActorRef coordinator) {
+            this.new_coordinator = coordinator;
+        }
+    }
 	
     public static class ReadRequest implements Serializable {
         public final ActorRef client;	// the client asking to read

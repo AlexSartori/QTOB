@@ -20,31 +20,26 @@ public class QTOB {
     
     
     public static void main(String[] args) {
-		
-		// Create the actor system for the Quorum-based Total Order Broadcast
+	// Create the actor system for the Quorum-based Total Order Broadcast
         final ActorSystem akka = ActorSystem.create("QTOB");
         
         // Create client actors
         List<ActorRef> clients = new ArrayList<>();
-        for (int i=0; i < N_CLIENTS; i++) {
+        for (int i=0; i < N_CLIENTS; i++)
             clients.add(akka.actorOf(ClientActor.props(i)));
-		}
         
         // Create replica actors
         List<ActorRef> replicas = new ArrayList<>();
-        for (int i=0; i < N_REPLICAS; i++) {
+        for (int i=0; i < N_REPLICAS; i++)
             replicas.add(akka.actorOf(ReplicaActor.props(i, 0)));
-		}
         
         
         // Make everyone aware of the group
         JoinGroupMsg msg = new Messages.JoinGroupMsg(replicas);
-        for (ActorRef r : replicas) {
+        for (ActorRef r : replicas)
             r.tell(msg, ActorRef.noSender());
-		}
-        for (ActorRef c : clients) {
+        for (ActorRef c : clients)
             c.tell(msg, ActorRef.noSender());
-		}
         
         
         

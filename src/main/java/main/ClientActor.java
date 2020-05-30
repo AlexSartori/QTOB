@@ -47,12 +47,11 @@ public class ClientActor extends AbstractActor {
     }
     
     private void onJoinGroup(JoinGroupMsg msg) {
-		this.replicas.addAll(msg.group);
+        this.replicas.addAll(msg.group);
     }
     
     private void onRequestTimer(RequestTimer req) {
-		
-		// pick a random replica
+        // Random replica
         int destination_id = this.rng.nextInt(this.replicas.size());
         ActorRef destination = (ActorRef)this.replicas.get(
             destination_id
