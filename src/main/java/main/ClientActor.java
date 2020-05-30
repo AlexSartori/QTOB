@@ -35,7 +35,6 @@ public class ClientActor extends AbstractActor {
         // Schedule messages with fixed intervals
         // to remind sending out requests
         
-        // Write requests to replicas
         Cancellable reqs_timer = getContext().system().scheduler().scheduleWithFixedDelay(
             Duration.create(0, TimeUnit.SECONDS), // When to start
             Duration.create(1, TimeUnit.SECONDS), // Delay between msgs
@@ -51,7 +50,7 @@ public class ClientActor extends AbstractActor {
     }
     
     private void onRequestTimer(RequestTimer req) {
-        // Random replica
+        // Pick a random replica
         int destination_id = this.rng.nextInt(this.replicas.size());
         ActorRef destination = (ActorRef)this.replicas.get(
             destination_id
