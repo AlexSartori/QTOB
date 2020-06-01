@@ -18,9 +18,9 @@ public class ReplicaActor extends AbstractActor {
     private int value;
 	
     private final List<ActorRef> peers;
-    private ActorRef coordinator;
+    private Integer coordinator;
 	
-    private enum State { ELECTING };
+    private enum State { ELECTING, BROADCAST };
     private State state;
 
     private final Map<Integer, Update> UpdatesHistory;
@@ -56,22 +56,40 @@ public class ReplicaActor extends AbstractActor {
         return res.substring(0, res.length() - 2) + "]";
     }
     
+    private void beginElection() {
+        // Ring-based Algorithm
+        this.state = State.ELECTING;
+        ArrayList<Integer> ids = new ArrayList<>();
+        ids.add(replicaID);
+        
+        int next = (replicaID + 1) % peers.size();
+        this.peers.get(next).tell(
+            new Election(ids),
+            getSelf()
+        );
+    }
+    
     private void onJoinGroup(JoinGroupMsg msg) {
-        for (ActorRef r : msg.group)
-            if (!r.equals(getSelf()))
-                this.peers.add(r);
+        this.peers.addAll(msg.group);
         
         this.vector_clock = new int[msg.group.size()];
+        
+        beginElection();
     }
     
     private void onReadRequest(ReadRequest req) {
-        System.out.println("Replica " + replicaID + " read request " + vcToString());
+        System.out.println("Replica " + replicaID + " read request");
         req.client.tell(
             new ReadResponse(this.value), getSelf()
         );
     }
     
     private void onWriteRequest(WriteRequest req) {
+        if (this.state == State.ELECTING) {
+            System.out.println("Replica " + this.replicaID + " election in progress, dropping request (<-- TODO!)");
+            return;
+        }
+        
         System.out.println("Replica " + this.replicaID + " TODO: Actually handle write request " + vcToString());
         updateVectorClock(null);
         
@@ -80,14 +98,47 @@ public class ReplicaActor extends AbstractActor {
         );
     }
 
-    private void onElection (Election election) {
+    private void onElection (Election msg) {
+        Boolean recirculate = !msg.IDs.contains(this.replicaID);
+        int next = (replicaID + 1) % peers.size();
         
+        if (recirculate) {
+            // Add my ID and recirculate
+            ArrayList<Integer> ids = new ArrayList<>(msg.IDs);
+            ids.add(this.replicaID);
+            
+            this.peers.get(next).tell(
+                new Election(ids),
+                getSelf()
+            );
+        } else {
+            // Change to coordinator message type
+            this.peers.get(next).tell(
+                new Coordinator(new ArrayList<>(msg.IDs)),
+                getSelf()
+            );
+        }
     }
-	
-    private void onSynchronization (Synchronization synch) {
-
+    
+    private void onCoordinator(Coordinator msg) {
+        if (this.state != State.ELECTING)
+            return; // End recirculation
+        
+        int coord = -1;
+        for (int id : msg.IDs)
+            if (id > coord)
+                coord = id;
+        this.coordinator = coord;
+        this.state = State.BROADCAST;
+        System.out.println("Replica " + replicaID + " - Coordinator: " + coord);
+        
+        int next = (replicaID + 1) % peers.size();
+        this.peers.get(next).tell(
+            new Coordinator(new ArrayList<>(msg.IDs)),
+            getSelf()
+        );
     }
-	
+    
     @Override
     public Receive createReceive() {
         return receiveBuilder()
@@ -95,7 +146,7 @@ public class ReplicaActor extends AbstractActor {
             .match(ReadRequest.class, this::onReadRequest)
             .match(WriteRequest.class, this::onWriteRequest)
             .match(Election.class, this::onElection)
-            .match(Synchronization.class, this::onSynchronization)
+            .match(Coordinator.class, this::onCoordinator)
             .build();
     }
 }

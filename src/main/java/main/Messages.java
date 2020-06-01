@@ -20,24 +20,21 @@ public class Messages {
     }
       
     public static class Election implements Serializable {
-        public final Update last_update;
-        public final int predecessorID;
+        public final List<Integer> IDs;
         
-        public Election(Update update, int id) {
-            this.last_update = update;
-            this.predecessorID = id;
+        public Election(ArrayList<Integer> ids) {
+            this.IDs = Collections.unmodifiableList(new ArrayList<>(ids));
         }
     }
-	
-    public static class Synchronization implements Serializable {
-        // updates missed by other replicas to be sent
-        public final ActorRef new_coordinator;
-
-        public Synchronization(ActorRef coordinator) {
-            this.new_coordinator = coordinator;
+    
+    public static class Coordinator implements Serializable {
+        public final List<Integer> IDs;
+        
+        public Coordinator(ArrayList<Integer> ids) {
+            this.IDs = Collections.unmodifiableList(new ArrayList<>(ids));
         }
     }
-	
+    
     public static class ReadRequest implements Serializable {
         public final ActorRef client;	// the client asking to read
         
