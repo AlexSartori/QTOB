@@ -17,12 +17,14 @@ import scala.concurrent.duration.Duration;
  */
 public class ClientActor extends AbstractActor {
     private final int clientID;
-    private final List replicas;
     private final Random rng;
+    private ActorRef target_replica;
+    private int target_replica_id;
     
     public ClientActor(int id) {
         this.clientID = id;
-        this.replicas = new ArrayList<>();
+        this.target_replica = null;
+        this.target_replica_id = -1;
         this.rng = new Random();
     }
 
@@ -46,16 +48,11 @@ public class ClientActor extends AbstractActor {
     }
     
     private void onJoinGroup(JoinGroupMsg msg) {
-        this.replicas.addAll(msg.group);
+        this.target_replica_id = rng.nextInt(msg.group.size());
+        this.target_replica = msg.group.get(target_replica_id);
     }
     
-    private void onRequestTimer(RequestTimer req) {
-        // Pick a random replica
-        int destination_id = this.rng.nextInt(this.replicas.size());
-        ActorRef destination = (ActorRef)this.replicas.get(
-            destination_id
-        );
-        
+    private void onRequestTimer(RequestTimer req) {        
         // Simulate network delay
         try {
             Thread.sleep(this.rng.nextInt(main.QTOB.MAX_NWK_DELAY_MS));
@@ -65,18 +62,18 @@ public class ClientActor extends AbstractActor {
         
         if (this.rng.nextBoolean()) {
             // Send read request
-            destination.tell(
+            target_replica.tell(
                 new ReadRequest(getSelf()),
                 getSelf()
             );
-            System.out.println("Client " + this.clientID + " read req to " + destination_id);
+            System.out.println("Client " + this.clientID + " read req to " + target_replica_id);
         } else {
             // Send write request
-            destination.tell(
+            target_replica.tell(
                 new WriteRequest(getSelf(), this.rng.nextInt()),
                 getSelf()
             );
-            System.out.println("Client " + this.clientID + " write req to " + destination_id);
+            System.out.println("Client " + this.clientID + " write req to " + target_replica_id);
         }
     }
     
