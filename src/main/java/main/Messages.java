@@ -60,9 +60,7 @@ public class Messages {
             this.new_value = new_value;
         }
     }
-    
-    public static class WriteResponse implements Serializable { }
-    
+      
     public static class UpdateMsg implements Serializable {
         public final Update u;
         

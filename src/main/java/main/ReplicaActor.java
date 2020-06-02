@@ -68,8 +68,8 @@ public class ReplicaActor extends AbstractActor {
         ids.add(replicaID);
         
         int next = getNext(this.peers, this.getSelf());
-		System.out.println("from ID " + this.replicaID + 
-				" to peer index " + next);
+        System.out.println("from ID " + this.replicaID + 
+                            " to peer index " + next);
         
         this.peers.get(next).tell(
             new Election(ids),
@@ -80,14 +80,14 @@ public class ReplicaActor extends AbstractActor {
     private int getNext(List<ActorRef> peers, ActorRef replica) {
         int idx = peers.indexOf(replica);
 		
-		if (idx==peers.size()-1) {
-			return 0;   // first element of the list
-		}
-		else {
-			idx++;
-			return idx;
-		}
-			
+        if (idx==peers.size()-1) {
+            return 0;   // first element of the list
+        }
+        else {
+            idx++;
+            return idx;
+        }
+
 //		Iterator iter = peers.listIterator(idx);
 //		if (!iter.hasNext()) {   // findNext called by the last element
 //	        return 0;
@@ -119,7 +119,7 @@ public class ReplicaActor extends AbstractActor {
         }
         
         if (this.coordinator == this.replicaID) {
-            // Propagate Update Msg and wait for Q ACKs, then WRITEOK
+            // Propagate Update Msg
             Update u = new Update(
                 new UpdateID(epoch, seqNo++),
                 req.new_value
@@ -139,10 +139,6 @@ public class ReplicaActor extends AbstractActor {
         
         updateVectorClock(null);
         System.out.println("Replica " + this.replicaID + " TODO: Complete handle of write request " + vcToString());
-        
-//        req.client.tell(
-//            new WriteResponse(), getSelf()
-//        );
     }
     
     private void onUpdateMsg(UpdateMsg msg) {
@@ -172,7 +168,6 @@ public class ReplicaActor extends AbstractActor {
         this.updateHistory.put(u.id, u.value);
         this.value = u.value;
         
-        // TODO: reply to client with WriteResponse
         System.out.println("Confirmed write <" + u.id.epoch + "," + u.id.seqNo + ">: " + u.value);
     }
 
