@@ -4,6 +4,7 @@ import akka.actor.AbstractActor;
 import akka.actor.Props;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import main.Messages.*;
@@ -62,13 +63,36 @@ public class ReplicaActor extends AbstractActor {
         ArrayList<Integer> ids = new ArrayList<>();
         ids.add(replicaID);
         
-        int next = (replicaID + 1) % peers.size();
+        int next = getNext(this.peers, this.getSelf());
+		System.out.println("from ID " + this.replicaID + 
+				" to peer index " + next);
+        
         this.peers.get(next).tell(
             new Election(ids),
             getSelf()
         );
     }
     
+    private int getNext(List<ActorRef> peers, ActorRef replica) {
+        int idx = peers.indexOf(replica);
+		
+		if (idx==peers.size()-1) {
+			return 0;   // first element of the list
+		}
+		else {
+			idx++;
+			return idx;
+		}
+			
+//		Iterator iter = peers.listIterator(idx);
+//		if (!iter.hasNext()) {   // findNext called by the last element
+//	        return 0;
+//		}
+//		else {
+//			return peers.indexOf(iter.next());
+//		}
+    }
+	
     private void onJoinGroup(JoinGroupMsg msg) {
         this.peers.addAll(msg.group);
         
@@ -100,7 +124,7 @@ public class ReplicaActor extends AbstractActor {
 
     private void onElection (Election msg) {
         Boolean recirculate = !msg.IDs.contains(this.replicaID);
-        int next = (replicaID + 1) % peers.size();
+        int next = getNext(this.peers, this.getSelf());
         
         if (recirculate) {
             // Add my ID and recirculate
@@ -132,7 +156,7 @@ public class ReplicaActor extends AbstractActor {
         this.state = State.BROADCAST;
         System.out.println("Replica " + replicaID + " - Coordinator: " + coord);
         
-        int next = (replicaID + 1) % peers.size();
+        int next = getNext(this.peers, this.getSelf());
         this.peers.get(next).tell(
             new Coordinator(new ArrayList<>(msg.IDs)),
             getSelf()

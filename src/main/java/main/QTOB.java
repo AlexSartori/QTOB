@@ -32,8 +32,8 @@ public class QTOB {
         List<ActorRef> replicas = new ArrayList<>();
         for (int i=0; i < N_REPLICAS; i++)
             replicas.add(akka.actorOf(ReplicaActor.props(i, 0)));
-        
-        
+
+		
         // Make everyone aware of the group
         JoinGroupMsg msg = new Messages.JoinGroupMsg(replicas);
         for (ActorRef r : replicas)
