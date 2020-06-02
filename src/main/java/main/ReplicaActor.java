@@ -4,7 +4,6 @@ import akka.actor.AbstractActor;
 import akka.actor.Props;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import main.Messages.*;
@@ -23,6 +22,7 @@ public class ReplicaActor extends AbstractActor {
 	
     private final List<ActorRef> peers;
     private Integer coordinator;
+    private int epoch, seqNo; // Only used if replica is the coordinator
     
     private final Map<UpdateID, Integer> updateHistory;
 
@@ -32,7 +32,10 @@ public class ReplicaActor extends AbstractActor {
         this.replicaID = ID;
         this.peers = new ArrayList<>();
         this.value = value;
+        
         this.coordinator = null;
+        this.epoch = 0;
+        this.seqNo = 0;
         
         this.updateHistory = new HashMap<>();
     }
@@ -118,7 +121,7 @@ public class ReplicaActor extends AbstractActor {
         if (this.coordinator == this.replicaID) {
             // Propagate Update Msg and wait for Q ACKs, then WRITEOK
             Update u = new Update(
-                new UpdateID(-1, -1), // TODO: define epoch and seqNo
+                new UpdateID(epoch, seqNo++),
                 req.new_value
             );
             
