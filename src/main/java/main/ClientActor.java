@@ -4,8 +4,6 @@ import akka.actor.AbstractActor;
 import akka.actor.Cancellable;
 import akka.actor.Props;
 import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 import main.Messages.*;
@@ -70,7 +68,7 @@ public class ClientActor extends AbstractActor {
         } else {
             // Send write request
             target_replica.tell(
-                new WriteRequest(getSelf(), this.rng.nextInt()),
+                new WriteRequest(getSelf(), this.rng.nextInt(1000)),
                 getSelf()
             );
             System.out.println("Client " + this.clientID + " write req to " + target_replica_id);

@@ -62,4 +62,28 @@ public class Messages {
     }
     
     public static class WriteResponse implements Serializable { }
+    
+    public static class UpdateMsg implements Serializable {
+        public final Update u;
+        
+        public UpdateMsg(Update u) {
+            this.u = u;
+        }
+    }
+    
+    public static class Ack implements Serializable {
+        public final Update u;
+        
+        public Ack(Update u) {
+            this.u = u;
+        }
+    }
+    
+    public static class WriteOk implements Serializable {
+        public final Update u;
+        
+        public WriteOk(Update u) {
+            this.u = u;
+        }
+    }
 }

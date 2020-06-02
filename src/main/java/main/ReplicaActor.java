@@ -14,26 +14,27 @@ import main.Messages.*;
  * @author alex
  */
 public class ReplicaActor extends AbstractActor {
+    private enum State { ELECTING, BROADCAST, CRASHED };
+    private State state;
+    
     private final int replicaID;
     private int[] vector_clock;
     private int value;
 	
     private final List<ActorRef> peers;
     private Integer coordinator;
-	
-    private enum State { ELECTING, BROADCAST };
-    private State state;
-
-    private final Map<Integer, Update> UpdatesHistory;
+    
+    private final Map<UpdateID, Integer> updateHistory;
 
     
     public ReplicaActor(int ID, int value) {
+        this.state = State.ELECTING;
         this.replicaID = ID;
         this.peers = new ArrayList<>();
         this.value = value;
         this.coordinator = null;
-        this.UpdatesHistory = new HashMap<>();
-        this.state = State.ELECTING;
+        
+        this.updateHistory = new HashMap<>();
     }
 
     static public Props props(int ID, int value) {
@@ -114,12 +115,62 @@ public class ReplicaActor extends AbstractActor {
             return;
         }
         
-        System.out.println("Replica " + this.replicaID + " TODO: Actually handle write request " + vcToString());
-        updateVectorClock(null);
+        if (this.coordinator == this.replicaID) {
+            // Propagate Update Msg and wait for Q ACKs, then WRITEOK
+            Update u = new Update(
+                new UpdateID(-1, -1), // TODO: define epoch and seqNo
+                req.new_value
+            );
+            
+            for (ActorRef a : this.peers)
+                a.tell(
+                    new UpdateMsg(u), getSelf()
+                );
+        } else {
+            // Forward to coordinator
+            this.peers.get(this.coordinator).tell(
+                new WriteRequest(req.client, req.new_value),
+                getSelf()
+            );
+        }
         
-        req.client.tell(
-            new WriteResponse(), getSelf()
+        updateVectorClock(null);
+        System.out.println("Replica " + this.replicaID + " TODO: Complete handle of write request " + vcToString());
+        
+//        req.client.tell(
+//            new WriteResponse(), getSelf()
+//        );
+    }
+    
+    private void onUpdateMsg(UpdateMsg msg) {
+        getSender().tell(
+            new Ack(msg.u),
+            getSelf()
         );
+    }
+    
+    private void onAck(Ack msg) {
+        if (this.coordinator != this.replicaID) {
+            System.err.println("!!! Received Ack even if not coordinator");
+            return;
+        }
+        
+        // TODO: wait for Q acks and propagate writeok to everyone
+        getSender().tell(
+            new WriteOk(msg.u),
+            getSelf()
+        );
+    }
+    
+    private void onWriteOk(WriteOk msg) {
+        // Find msg.u in buffer and confirm it
+        Update u = msg.u;
+        
+        this.updateHistory.put(u.id, u.value);
+        this.value = u.value;
+        
+        // TODO: reply to client with WriteResponse
+        System.out.println("Confirmed write <" + u.id.epoch + "," + u.id.seqNo + ">: " + u.value);
     }
 
     private void onElection (Election msg) {
@@ -154,7 +205,7 @@ public class ReplicaActor extends AbstractActor {
                 coord = id;
         this.coordinator = coord;
         this.state = State.BROADCAST;
-        System.out.println("Replica " + replicaID + " - Coordinator: " + coord);
+        System.out.println("Replica " + replicaID + " - Coordinator => " + coord);
         
         int next = getNext(this.peers, this.getSelf());
         this.peers.get(next).tell(
@@ -169,6 +220,9 @@ public class ReplicaActor extends AbstractActor {
             .match(JoinGroupMsg.class, this::onJoinGroup)
             .match(ReadRequest.class, this::onReadRequest)
             .match(WriteRequest.class, this::onWriteRequest)
+            .match(UpdateMsg.class, this::onUpdateMsg)
+            .match(Ack.class, this::onAck)
+            .match(WriteOk.class, this::onWriteOk)
             .match(Election.class, this::onElection)
             .match(Coordinator.class, this::onCoordinator)
             .build();
