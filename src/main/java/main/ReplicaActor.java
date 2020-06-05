@@ -159,7 +159,8 @@ public class ReplicaActor extends AbstractActor {
         int curr_acks = acks.get(msg.u.id) + 1;
         this.acks.replace(msg.u.id, curr_acks);
         
-        if (curr_acks == peers.size()) { // TODO: set quorum to correct value
+        int Q = Math.floorDiv(peers.size(), 2) + 1;
+        if (curr_acks == Q) {
             for (ActorRef r : peers)
                 r.tell(
                     new WriteOk(msg.u),
