@@ -35,9 +35,10 @@ public class QTOB {
 
 		
         // Make everyone aware of the group
-        JoinGroupMsg msg = new Messages.JoinGroupMsg(replicas);
+        View msg = new View(0, replicas);
         for (ActorRef r : replicas)
             r.tell(msg, ActorRef.noSender());
+        
         for (ActorRef c : clients)
             c.tell(msg, ActorRef.noSender());
         

@@ -19,10 +19,13 @@ public class ReplicaActor extends AbstractActor {
     private final int replicaID;
     private int value;
     private final Map<UpdateID, Integer> updateHistory;
-    private final List<List<Integer>> views;
+    
+    // View & Epoch management
+    private final List<View> views;
+    private Map<Integer, Integer> flushes_received;
 
     // Only used if replica is the coordinator
-    private final List<ActorRef> peers;
+    private List<ActorRef> peers;
     private Integer coordinator;
     private int epoch, seqNo;
     private final Map<UpdateID, Integer> acks;
@@ -36,6 +39,7 @@ public class ReplicaActor extends AbstractActor {
         this.value = value;
         this.updateHistory = new HashMap<>();
         this.views = new ArrayList<>();
+        this.flushes_received = new HashMap<>();
         
         this.coordinator = null;
         this.epoch = 0;
@@ -82,15 +86,42 @@ public class ReplicaActor extends AbstractActor {
 //			return peers.indexOf(iter.next());
 //		}
     }
-	
-    private void onJoinGroup(JoinGroupMsg msg) {
-        this.peers.addAll(msg.group);
-        beginElection();
-    }
     
     private void onViewChange(View msg) {
-        System.out.println("Replica " + replicaID + " received View Change: " + msg.peers);
-        this.views.add(msg.peers);
+        System.out.println("Replica " + replicaID + " received new ViewChange: V" + msg.id);
+        this.state = State.VIEW_CHANGE; // Pause sending new multicasts
+        
+        // Add new view
+        this.views.add(msg);
+                
+        // (?) Send all unstable messages
+        
+        // Flush all
+        flushes_received.put(msg.id, 0);
+        for (ActorRef r : msg.peers)
+            if (r != getSelf())
+                r.tell(
+                    new Flush(views.get(views.size()-1).id),
+                    getSelf()
+                );
+    }
+    
+    private void onFlush(Flush msg) {
+        flushes_received.replace(
+            msg.id,
+            flushes_received.get(msg.id) + 1
+        );
+        
+        View curr_view = views.get(views.size() - 1);
+        
+        if (flushes_received.get(msg.id) == curr_view.peers.size() - 1) {
+            // Install view
+            System.out.println("Installing view V" + msg.id);
+            this.peers = curr_view.peers;
+            
+            if (this.coordinator == null)
+                beginElection();
+        }
     }
     
     private void onReadRequest(ReadRequest req) {
@@ -106,6 +137,11 @@ public class ReplicaActor extends AbstractActor {
             return;
         }
         
+        if (this.state == State.VIEW_CHANGE) {
+            System.out.println("TODO: enqueue requests during view changes");
+            return;
+        }
+        
         if (this.coordinator == this.replicaID) {
             // Propagate Update Msg
             UpdateID u_id = new UpdateID(epoch, seqNo++);
@@ -114,7 +150,8 @@ public class ReplicaActor extends AbstractActor {
             this.acks.put(u_id, 0);
             
             for (ActorRef a : this.peers)
-                a.tell(new UpdateMsg(u), getSelf());
+                if (a != getSelf())
+                    a.tell(new UpdateMsg(u), getSelf());
         } else {
             // Forward to coordinator
             this.peers.get(this.coordinator).tell(
@@ -162,6 +199,9 @@ public class ReplicaActor extends AbstractActor {
     }
 
     private void onElection (Election msg) {
+        if (this.state == State.VIEW_CHANGE)
+            return; // Not ready, don't know the group yet
+        
         Boolean recirculate = !msg.IDs.contains(this.replicaID);
         int next = getNext(this.peers, this.getSelf());
         
@@ -205,8 +245,8 @@ public class ReplicaActor extends AbstractActor {
     @Override
     public Receive createReceive() {
         return receiveBuilder()
-            .match(JoinGroupMsg.class, this::onJoinGroup)
             .match(View.class, this::onViewChange)
+            .match(Flush.class, this::onFlush)
             .match(ReadRequest.class, this::onReadRequest)
             .match(WriteRequest.class, this::onWriteRequest)
             .match(UpdateMsg.class, this::onUpdateMsg)

@@ -36,7 +36,7 @@ public class ClientActor extends AbstractActor {
         // to remind sending out requests
         
         Cancellable reqs_timer = getContext().system().scheduler().scheduleWithFixedDelay(
-            Duration.create(0, TimeUnit.SECONDS), // When to start
+            Duration.create(1, TimeUnit.SECONDS), // When to start
             Duration.create(1, TimeUnit.SECONDS), // Delay between msgs
             getSelf(),                            // To who
             new RequestTimer(),                   // Msg to send
@@ -45,9 +45,10 @@ public class ClientActor extends AbstractActor {
         );
     }
     
-    private void onJoinGroup(JoinGroupMsg msg) {
-        this.target_replica_id = rng.nextInt(msg.group.size());
-        this.target_replica = msg.group.get(target_replica_id);
+    private void onView(View msg) {
+        // Choose a destination replica
+        this.target_replica_id = rng.nextInt(msg.peers.size());
+        this.target_replica = msg.peers.get(target_replica_id);
     }
     
     private void onRequestTimer(RequestTimer req) {        
@@ -82,7 +83,7 @@ public class ClientActor extends AbstractActor {
     @Override
     public Receive createReceive() {
         return receiveBuilder()
-            .match(JoinGroupMsg.class, this::onJoinGroup)
+            .match(View.class, this::onView)
             .match(RequestTimer.class, this::onRequestTimer)
             .match(ReadResponse.class, this::onReadResponse)
             .build();
