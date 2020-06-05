@@ -19,12 +19,14 @@ public class ReplicaActor extends AbstractActor {
     private final int replicaID;
     private int[] vector_clock;
     private int value;
-	
+    private final Map<UpdateID, Integer> updateHistory;
+
+    // Only used if replica is the coordinator
     private final List<ActorRef> peers;
     private Integer coordinator;
-    private int epoch, seqNo; // Only used if replica is the coordinator
+    private int epoch, seqNo;
+    private final Map<UpdateID, Integer> acks;
     
-    private final Map<UpdateID, Integer> updateHistory;
 
     
     public ReplicaActor(int ID, int value) {
@@ -38,6 +40,7 @@ public class ReplicaActor extends AbstractActor {
         this.seqNo = 0;
         
         this.updateHistory = new HashMap<>();
+        this.acks = new HashMap<>();
     }
 
     static public Props props(int ID, int value) {
@@ -120,15 +123,13 @@ public class ReplicaActor extends AbstractActor {
         
         if (this.coordinator == this.replicaID) {
             // Propagate Update Msg
-            Update u = new Update(
-                new UpdateID(epoch, seqNo++),
-                req.new_value
-            );
+            UpdateID u_id = new UpdateID(epoch, seqNo++);
+            Update u = new Update(u_id, req.new_value);
+            
+            this.acks.put(u_id, 0);
             
             for (ActorRef a : this.peers)
-                a.tell(
-                    new UpdateMsg(u), getSelf()
-                );
+                a.tell(new UpdateMsg(u), getSelf());
         } else {
             // Forward to coordinator
             this.peers.get(this.coordinator).tell(
@@ -154,17 +155,21 @@ public class ReplicaActor extends AbstractActor {
             return;
         }
         
-        // TODO: wait for Q acks and propagate writeok to everyone
-        getSender().tell(
-            new WriteOk(msg.u),
-            getSelf()
-        );
+        // Wait for Q acks and propagate writeok to everyone
+        int curr_acks = acks.get(msg.u.id) + 1;
+        this.acks.replace(msg.u.id, curr_acks);
+        
+        if (curr_acks == peers.size()) { // TODO: set quorum to correct value
+            for (ActorRef r : peers)
+                r.tell(
+                    new WriteOk(msg.u),
+                    getSelf()
+                );
+        }
     }
     
     private void onWriteOk(WriteOk msg) {
-        // Find msg.u in buffer and confirm it
         Update u = msg.u;
-        
         this.updateHistory.put(u.id, u.value);
         this.value = u.value;
         
