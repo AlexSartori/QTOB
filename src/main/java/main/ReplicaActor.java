@@ -13,13 +13,13 @@ import main.Messages.*;
  * @author alex
  */
 public class ReplicaActor extends AbstractActor {
-    private enum State { ELECTING, BROADCAST, CRASHED };
+    private enum State { VIEW_CHANGE, ELECTING, BROADCAST, CRASHED };
     private State state;
     
     private final int replicaID;
-    private int[] vector_clock;
     private int value;
     private final Map<UpdateID, Integer> updateHistory;
+    private final List<List<Integer>> views;
 
     // Only used if replica is the coordinator
     private final List<ActorRef> peers;
@@ -34,12 +34,12 @@ public class ReplicaActor extends AbstractActor {
         this.replicaID = ID;
         this.peers = new ArrayList<>();
         this.value = value;
+        this.updateHistory = new HashMap<>();
+        this.views = new ArrayList<>();
         
         this.coordinator = null;
         this.epoch = 0;
         this.seqNo = 0;
-        
-        this.updateHistory = new HashMap<>();
         this.acks = new HashMap<>();
     }
 
@@ -47,23 +47,6 @@ public class ReplicaActor extends AbstractActor {
         return Props.create(ReplicaActor.class, () -> new ReplicaActor(ID, value));
     }
 
-    private void updateVectorClock(int[] vc) {
-        // If vc != null update all VCs, otherwise only mine
-        if (vc != null)
-            for (int i = 0; i < vc.length; i++)
-                if (i != replicaID && vc[i] > vector_clock[i])
-                    vector_clock[i] = vc[i];
-        
-        vector_clock[replicaID]++;
-    }
-    
-    private String vcToString() {
-        String res = "[";
-        for (int vc : vector_clock)
-            res += vc + ", ";
-        return res.substring(0, res.length() - 2) + "]";
-    }
-    
     private void beginElection() {
         // Ring-based Algorithm
         this.state = State.ELECTING;
@@ -102,10 +85,12 @@ public class ReplicaActor extends AbstractActor {
 	
     private void onJoinGroup(JoinGroupMsg msg) {
         this.peers.addAll(msg.group);
-        
-        this.vector_clock = new int[msg.group.size()];
-        
         beginElection();
+    }
+    
+    private void onViewChange(View msg) {
+        System.out.println("Replica " + replicaID + " received View Change: " + msg.peers);
+        this.views.add(msg.peers);
     }
     
     private void onReadRequest(ReadRequest req) {
@@ -138,8 +123,7 @@ public class ReplicaActor extends AbstractActor {
             );
         }
         
-        updateVectorClock(null);
-        System.out.println("Replica " + this.replicaID + " TODO: Complete handle of write request " + vcToString());
+        System.out.println("Replica " + this.replicaID + " TODO: Complete handle of write request");
     }
     
     private void onUpdateMsg(UpdateMsg msg) {
@@ -222,6 +206,7 @@ public class ReplicaActor extends AbstractActor {
     public Receive createReceive() {
         return receiveBuilder()
             .match(JoinGroupMsg.class, this::onJoinGroup)
+            .match(View.class, this::onViewChange)
             .match(ReadRequest.class, this::onReadRequest)
             .match(WriteRequest.class, this::onWriteRequest)
             .match(UpdateMsg.class, this::onUpdateMsg)

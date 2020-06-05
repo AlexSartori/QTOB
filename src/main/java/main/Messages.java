@@ -2,7 +2,6 @@ package main;
 
 import akka.actor.ActorRef;
 import java.io.Serializable;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -15,23 +14,33 @@ public class Messages {
         public final List<ActorRef> group;  // an array of group members
         
         public JoinGroupMsg(List<ActorRef> group) {
-            this.group = Collections.unmodifiableList(new ArrayList<>(group));
+            this.group = Collections.unmodifiableList(group);
+        }
+    }
+    
+    public static class View implements Serializable {
+        public int id;
+        public List<Integer> peers;
+
+        public View(int id, List<Integer> peers) {
+            this.id = id;
+            this.peers = Collections.unmodifiableList(peers);
         }
     }
       
     public static class Election implements Serializable {
         public final List<Integer> IDs;
         
-        public Election(ArrayList<Integer> ids) {
-            this.IDs = Collections.unmodifiableList(new ArrayList<>(ids));
+        public Election(List<Integer> ids) {
+            this.IDs = Collections.unmodifiableList(ids);
         }
     }
     
     public static class Coordinator implements Serializable {
         public final List<Integer> IDs;
         
-        public Coordinator(ArrayList<Integer> ids) {
-            this.IDs = Collections.unmodifiableList(new ArrayList<>(ids));
+        public Coordinator(List<Integer> ids) {
+            this.IDs = Collections.unmodifiableList(ids);
         }
     }
     
