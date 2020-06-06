@@ -13,7 +13,13 @@ import main.Messages.*;
  * @author alex
  */
 public class ReplicaActor extends AbstractActor {
-    private enum State { VIEW_CHANGE, ELECTING, BROADCAST, CRASHED };
+
+	private enum State {
+		VIEW_CHANGE,
+		ELECTING,
+		BROADCAST,
+		CRASHED
+	};
     private State state;
     
     private final int replicaID;
@@ -37,7 +43,7 @@ public class ReplicaActor extends AbstractActor {
         this.replicaID = ID;
         this.peers = new ArrayList<>();
         this.value = value;
-        this.updateHistory = new HashMap<>();
+        this.updateHistory = new HashMap<>(); // to be changed, maybe
         this.views = new ArrayList<>();
         this.flushes_received = new HashMap<>();
         
@@ -210,10 +216,17 @@ public class ReplicaActor extends AbstractActor {
             ArrayList<Integer> ids = new ArrayList<>(msg.IDs);
             ids.add(this.replicaID);
             
+			// TODO add the last update in the Election msg
             this.peers.get(next).tell(
                 new Election(ids),
                 getSelf()
             );
+			
+    // as 16/24 says, you should send back an ACK to the ELECTION sender
+//			getSender().tell(
+//				new ElectionAck(),
+//				getSelf()
+//			);
         } else {
             // Change to coordinator message type
             this.peers.get(next).tell(
