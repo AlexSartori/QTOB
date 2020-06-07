@@ -48,7 +48,7 @@ public class ReplicaActor extends AbstractActor {
         this.flushes_received = new HashMap<>();
         
         this.coordinator = null;
-        this.epoch = 0;
+        this.epoch = -1;  // on the first election this will change to 0
         this.seqNo = 0;
         this.acks = new HashMap<>();
     }
@@ -94,7 +94,7 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onViewChange(View msg) {
-        System.out.println("Replica " + replicaID + " received new ViewChange: V" + msg.id);
+        System.out.println("Replica " + replicaID + " received new ViewChange: V" + msg.viewID);
         this.state = State.VIEW_CHANGE; // Pause sending new multicasts
         
         // Add new view
@@ -103,11 +103,11 @@ public class ReplicaActor extends AbstractActor {
         // (?) Send all unstable messages
         
         // Flush all
-        flushes_received.put(msg.id, 0);
+        flushes_received.put(msg.viewID, 0);
         for (ActorRef r : msg.peers)
             if (r != getSelf())
                 r.tell(
-                    new Flush(views.get(views.size()-1).id),
+                    new Flush(views.get(views.size()-1).viewID),
                     getSelf()
                 );
     }
@@ -150,7 +150,7 @@ public class ReplicaActor extends AbstractActor {
         
         if (this.coordinator == this.replicaID) {
             // Propagate Update Msg
-            UpdateID u_id = new UpdateID(epoch, seqNo++);
+            UpdateID u_id = new UpdateID(epoch, seqNo++);  // be careful with ++
             Update u = new Update(u_id, req.new_value);
             
             this.acks.put(u_id, 0);
@@ -240,11 +240,18 @@ public class ReplicaActor extends AbstractActor {
         if (this.state != State.ELECTING)
             return; // End recirculation
         
+		// Election based on ID
         int coord = -1;
         for (int id : msg.IDs)
             if (id > coord)
                 coord = id;
         this.coordinator = coord;
+		
+		if (this.coordinator == this.replicaID) {
+			this.epoch++;
+			this.seqNo = 0;
+		}
+		
         this.state = State.BROADCAST;
         System.out.println("Replica " + replicaID + " - Coordinator => " + coord);
         
