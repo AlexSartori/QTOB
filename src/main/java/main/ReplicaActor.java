@@ -14,12 +14,12 @@ import main.Messages.*;
  */
 public class ReplicaActor extends AbstractActor {
 
-	private enum State {
-		VIEW_CHANGE,
-		ELECTING,
-		BROADCAST,
-		CRASHED
-	};
+    private enum State {
+            VIEW_CHANGE,
+            ELECTING,
+            BROADCAST,
+            CRASHED
+    };
     private State state;
     
     private final int replicaID;
@@ -77,20 +77,12 @@ public class ReplicaActor extends AbstractActor {
         int idx = peers.indexOf(replica);
 		
         if (idx==peers.size()-1) {
-            return 0;   // first element of the list
+            return 0;   // First element of the list
         }
         else {
             idx++;
             return idx;
         }
-
-//		Iterator iter = peers.listIterator(idx);
-//		if (!iter.hasNext()) {   // findNext called by the last element
-//	        return 0;
-//		}
-//		else {
-//			return peers.indexOf(iter.next());
-//		}
     }
     
     private void onViewChange(View msg) {
@@ -216,17 +208,17 @@ public class ReplicaActor extends AbstractActor {
             ArrayList<Integer> ids = new ArrayList<>(msg.IDs);
             ids.add(this.replicaID);
             
-			// TODO add the last update in the Election msg
+	    // TODO add the last update in the Election msg
             this.peers.get(next).tell(
                 new Election(ids),
                 getSelf()
             );
 			
-    // as 16/24 says, you should send back an ACK to the ELECTION sender
-//			getSender().tell(
-//				new ElectionAck(),
-//				getSelf()
-//			);
+//          // As 16/24 says, you should send back an ACK to the ELECTION sender
+//          getSender().tell(
+//              new ElectionAck(),
+//              getSelf()
+//          );
         } else {
             // Change to coordinator message type
             this.peers.get(next).tell(
@@ -240,18 +232,18 @@ public class ReplicaActor extends AbstractActor {
         if (this.state != State.ELECTING)
             return; // End recirculation
         
-		// Election based on ID
+	// Election based on ID
         int coord = -1;
         for (int id : msg.IDs)
             if (id > coord)
                 coord = id;
         this.coordinator = coord;
-		
-		if (this.coordinator == this.replicaID) {
-			this.epoch++;
-			this.seqNo = 0;
-		}
-		
+	
+        if (this.coordinator == this.replicaID) {
+            this.epoch++;
+            this.seqNo = 0;
+        }
+	
         this.state = State.BROADCAST;
         System.out.println("Replica " + replicaID + " - Coordinator => " + coord);
         
