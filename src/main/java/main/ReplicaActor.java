@@ -1,12 +1,15 @@
 package main;
 import akka.actor.ActorRef;
 import akka.actor.AbstractActor;
+import akka.actor.Cancellable;
 import akka.actor.Props;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import main.Messages.*;
+import scala.concurrent.duration.Duration;
 
 /**
  *
@@ -28,7 +31,7 @@ public class ReplicaActor extends AbstractActor {
     
     // View & Epoch management
     private final List<View> views;
-    private Map<Integer, Integer> flushes_received;
+    private final Map<Integer, Integer> flushes_received;
 
     // Only used if replica is the coordinator
     private List<ActorRef> peers;
@@ -56,8 +59,15 @@ public class ReplicaActor extends AbstractActor {
     static public Props props(int ID, int value) {
         return Props.create(ReplicaActor.class, () -> new ReplicaActor(ID, value));
     }
-
+    
+    private void setToCrashedState() {
+        this.state = State.CRASHED;
+    }
+    
     private void beginElection() {
+        if (this.state == State.CRASHED)
+            return;
+        
         // Ring-based Algorithm
         this.state = State.ELECTING;
         ArrayList<Integer> ids = new ArrayList<>();
@@ -86,6 +96,9 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onViewChange(View msg) {
+        if (this.state == State.CRASHED)
+            return;
+        
         System.out.println("Replica " + replicaID + " received new ViewChange: V" + msg.viewID);
         this.state = State.VIEW_CHANGE; // Pause sending new multicasts
         
@@ -105,6 +118,9 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onFlush(Flush msg) {
+        if (this.state == State.CRASHED)
+            return;
+        
         flushes_received.replace(
             msg.id,
             flushes_received.get(msg.id) + 1
@@ -123,6 +139,9 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onReadRequest(ReadRequest req) {
+        if (this.state == State.CRASHED)
+            return;
+        
         System.out.println("Replica " + replicaID + " read request");
         req.client.tell(
             new ReadResponse(this.value), getSelf()
@@ -130,6 +149,10 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onWriteRequest(WriteRequest req) {
+        if (this.state == State.CRASHED) {
+            return;
+        }
+        
         if (this.state == State.ELECTING) {
             System.out.println("Replica " + this.replicaID + " election in progress, dropping request (<-- TODO!)");
             return;
@@ -157,11 +180,12 @@ public class ReplicaActor extends AbstractActor {
                 getSelf()
             );
         }
-        
-        System.out.println("Replica " + this.replicaID + " TODO: Complete handle of write request");
     }
     
     private void onUpdateMsg(UpdateMsg msg) {
+        if (this.state == State.CRASHED)
+            return;
+        
         getSender().tell(
             new Ack(msg.u),
             getSelf()
@@ -169,6 +193,9 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onAck(Ack msg) {
+        if (this.state == State.CRASHED)
+            return;
+        
         if (this.coordinator != this.replicaID) {
             System.err.println("!!! Received Ack even if not coordinator");
             return;
@@ -189,6 +216,9 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onWriteOk(WriteOk msg) {
+        if (this.state == State.CRASHED)
+            return;
+        
         Update u = msg.u;
         this.updateHistory.put(u.id, u.value);
         this.value = u.value;
@@ -197,6 +227,9 @@ public class ReplicaActor extends AbstractActor {
     }
 
     private void onElection (Election msg) {
+        if (this.state == State.CRASHED)
+            return;
+        
         if (this.state == State.VIEW_CHANGE)
             return; // Not ready, don't know the group yet
         
@@ -229,6 +262,8 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onCoordinator(Coordinator msg) {
+        if (this.state == State.CRASHED)
+            return;
         if (this.state != State.ELECTING)
             return; // End recirculation
         
@@ -254,6 +289,11 @@ public class ReplicaActor extends AbstractActor {
         );
     }
     
+    private void onCrashMsg(CrashMsg msg) {
+        System.out.println("Replica " + replicaID + " setting state to CRASHED");
+        setToCrashedState();
+    }
+    
     @Override
     public Receive createReceive() {
         return receiveBuilder()
@@ -266,6 +306,7 @@ public class ReplicaActor extends AbstractActor {
             .match(WriteOk.class, this::onWriteOk)
             .match(Election.class, this::onElection)
             .match(Coordinator.class, this::onCoordinator)
+            .match(CrashMsg.class, this::onCrashMsg)
             .build();
     }
 }

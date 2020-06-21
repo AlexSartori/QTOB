@@ -93,4 +93,6 @@ public class Messages {
             this.u = u;
         }
     }
+    
+    public static class CrashMsg { }
 }
