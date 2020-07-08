@@ -46,10 +46,11 @@ public class QTOB {
         for (ActorRef c : clients)
             c.tell(msg, ActorRef.noSender());
         
-        
+        inputContinue();    
     
         // Schedule random crashes
         int how_many = rng.nextInt(N_REPLICAS);
+        System.out.println(how_many + " replicas will crash.");
         
         for (int i = 0; i < how_many; i++) {
             akka.scheduler().scheduleOnce(
@@ -61,7 +62,13 @@ public class QTOB {
             );
         }
         
+        inputContinue();
+		
         // Handle termination
+        akka.terminate();
+}
+
+    public static void inputContinue() {
         try {
             System.out.println(">>> Press ENTER to exit <<<");
             System.in.read();
@@ -69,7 +76,6 @@ public class QTOB {
         catch (IOException ioe) {
             System.out.println("Exiting...");
         }
-        akka.terminate();
     }
-    
+
 }
