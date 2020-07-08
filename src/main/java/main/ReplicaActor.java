@@ -175,7 +175,7 @@ public class ReplicaActor extends AbstractActor {
                     a.tell(new UpdateMsg(u), getSelf());
         } else {
             // Forward to coordinator
-            this.peers.get(this.coordinator).tell(
+            this.peers.get(this.coordinator).tell(  // ID may not correspond to index
                 new WriteRequest(req.client, req.new_value),
                 getSelf()
             );
@@ -187,12 +187,12 @@ public class ReplicaActor extends AbstractActor {
             return;
         
         getSender().tell(
-            new Ack(msg.u),
+            new UpdateAck(msg.u),
             getSelf()
         );
     }
     
-    private void onAck(Ack msg) {
+    private void onUpdateAck(UpdateAck msg) {
         if (this.state == State.CRASHED)
             return;
         
@@ -247,11 +247,11 @@ public class ReplicaActor extends AbstractActor {
                 getSelf()
             );
 			
-//          // As 16/24 says, you should send back an ACK to the ELECTION sender
-//          getSender().tell(
-//              new ElectionAck(),
-//              getSelf()
-//          );
+        // Send back an ElectionAck to the ELECTION sender
+            getSender().tell(
+                new ElectionAck(this.replicaID),
+                getSelf()
+            );
         } else {
             // Change to coordinator message type
             this.peers.get(next).tell(
@@ -289,6 +289,12 @@ public class ReplicaActor extends AbstractActor {
         );
     }
     
+    private void onElectionAck(ElectionAck msg) {
+//  for some reason each node gets 3 ElectionAcks from their next node
+//      System.out.println(this.replicaID + " gets an ElectionAck from: " + msg.from);
+//  TODO: stop the ElectionAck timeout, hopefully the next node is alive
+    }
+    
     private void onCrashMsg(CrashMsg msg) {
         System.out.println("Replica " + replicaID + " setting state to CRASHED");
         setToCrashedState();
@@ -302,9 +308,10 @@ public class ReplicaActor extends AbstractActor {
             .match(ReadRequest.class, this::onReadRequest)
             .match(WriteRequest.class, this::onWriteRequest)
             .match(UpdateMsg.class, this::onUpdateMsg)
-            .match(Ack.class, this::onAck)
+            .match(UpdateAck.class, this::onUpdateAck)
             .match(WriteOk.class, this::onWriteOk)
             .match(Election.class, this::onElection)
+            .match(ElectionAck.class, this::onElectionAck)
             .match(Coordinator.class, this::onCoordinator)
             .match(CrashMsg.class, this::onCrashMsg)
             .build();

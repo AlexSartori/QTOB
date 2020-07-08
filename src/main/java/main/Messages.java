@@ -36,6 +36,14 @@ public class Messages {
         }
     }
     
+    public static class ElectionAck implements Serializable {
+        public final int from;
+        
+        public ElectionAck(int id) {
+            this.from = id;
+        }
+    }
+    
     public static class Coordinator implements Serializable {
         public final List<Integer> IDs;
         
@@ -78,10 +86,10 @@ public class Messages {
         }
     }
     
-    public static class Ack implements Serializable {
+    public static class UpdateAck implements Serializable {
         public final Update u;
         
-        public Ack(Update u) {
+        public UpdateAck(Update u) {
             this.u = u;
         }
     }
@@ -94,5 +102,5 @@ public class Messages {
         }
     }
     
-    public static class CrashMsg { }
+    public static class CrashMsg implements Serializable { }
 }
