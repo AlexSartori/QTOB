@@ -1,7 +1,6 @@
 package main;
 import akka.actor.ActorRef;
 import akka.actor.AbstractActor;
-import akka.actor.Cancellable;
 import akka.actor.Props;
 import java.io.Serializable;
 import java.util.Random;
@@ -15,15 +14,15 @@ import scala.concurrent.duration.Duration;
  */
 public class ClientActor extends AbstractActor {
     private final int clientID;
-    private final Random rng;
+    private final Random RNG;
     private ActorRef target_replica;
     private int target_replica_id;
     
     public ClientActor(int id) {
         this.clientID = id;
-        this.target_replica = null;
-        this.target_replica_id = -1;
-        this.rng = new Random();
+        this.target_replica = null;  // ---
+        this.target_replica_id = -1; // TODO ridondante, trovare modo per ricavare una dall'altra
+        this.RNG = new Random();
     }
 
     static public Props props(int id) {
@@ -32,10 +31,11 @@ public class ClientActor extends AbstractActor {
     
     @Override
     public void preStart() {
-        // Schedule messages with fixed intervals
-        // to remind sending out requests
-        
-        Cancellable reqs_timer = getContext().system().scheduler().scheduleWithFixedDelay(
+        scheduleRequests();
+    }
+    
+    private void scheduleRequests() {
+        getContext().system().scheduler().scheduleWithFixedDelay(
             Duration.create(1, TimeUnit.SECONDS), // When to start
             Duration.create(1, TimeUnit.SECONDS), // Delay between msgs
             getSelf(),                            // To who
@@ -45,45 +45,55 @@ public class ClientActor extends AbstractActor {
         );
     }
     
-    private void onView(ViewChange msg) {
-        // Choose a destination replica
-        this.target_replica_id = rng.nextInt(msg.peers.size());
-        this.target_replica = msg.peers.get(target_replica_id);
+    private void onRequestTimer(RequestTimer req) {        
+        simulateNwkDelay();
+        
+        if (this.RNG.nextBoolean())
+            sendReadReq();
+        else
+            sendWriteReq();
     }
     
-    private void onRequestTimer(RequestTimer req) {        
-        // Simulate network delay
+    private void simulateNwkDelay() {
         try {
-            Thread.sleep(this.rng.nextInt(main.QTOB.MAX_NWK_DELAY_MS));
+            Thread.sleep(this.RNG.nextInt(main.QTOB.MAX_NWK_DELAY_MS));
         } catch (InterruptedException ex) {
             System.err.println("Could not simulate network delay");
         }
+    }
+    
+    private void sendReadReq() {
+        target_replica.tell(
+            new ReadRequest(getSelf()),
+            getSelf()
+        );
         
-        if (this.rng.nextBoolean()) {
-            // Send read request
-            target_replica.tell(
-                new ReadRequest(getSelf()),
-                getSelf()
-            );
-            System.out.println("Client " + this.clientID + " read req to " + target_replica_id);
-        } else {
-            // Send write request
-            target_replica.tell(
-                new WriteRequest(getSelf(), this.rng.nextInt(1000)),
-                getSelf()
-            );
-            System.out.println("Client " + this.clientID + " write req to " + target_replica_id);
-        }
+        System.out.println("Client " + this.clientID + " read req to " + target_replica_id);
+    }
+    
+    private void sendWriteReq() {
+        target_replica.tell(
+            new WriteRequest(getSelf(), this.RNG.nextInt(1000)),
+            getSelf()
+        );
+        
+        System.out.println("Client " + this.clientID + " write req to " + target_replica_id);
     }
     
     private void onReadResponse(ReadResponse res) {
         System.out.println("Client " + this.clientID + " read done " + res.value);
     }
     
+    private void onViewChange(ViewChange msg) {
+        // Choose a destination replica
+        this.target_replica_id = RNG.nextInt(msg.peers.size());
+        this.target_replica = msg.peers.get(target_replica_id);
+    }
+    
     @Override
     public Receive createReceive() {
         return receiveBuilder()
-            .match(ViewChange.class, this::onView)
+            .match(ViewChange.class, this::onViewChange)
             .match(RequestTimer.class, this::onRequestTimer)
             .match(ReadResponse.class, this::onReadResponse)
             .build();
