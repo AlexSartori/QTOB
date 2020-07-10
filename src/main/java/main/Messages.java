@@ -10,11 +10,11 @@ import java.util.List;
  * @author alex
  */
 public class Messages {    
-    public static class View implements Serializable {
+    public static class ViewChange implements Serializable {
         public int viewID;
         public List<ActorRef> peers;
 
-        public View(int id, List<ActorRef> peers) {
+        public ViewChange(int id, List<ActorRef> peers) {
             this.viewID = id;
             this.peers = Collections.unmodifiableList(peers);
         }

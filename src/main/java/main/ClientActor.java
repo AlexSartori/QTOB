@@ -45,7 +45,7 @@ public class ClientActor extends AbstractActor {
         );
     }
     
-    private void onView(View msg) {
+    private void onView(ViewChange msg) {
         // Choose a destination replica
         this.target_replica_id = rng.nextInt(msg.peers.size());
         this.target_replica = msg.peers.get(target_replica_id);
@@ -83,7 +83,7 @@ public class ClientActor extends AbstractActor {
     @Override
     public Receive createReceive() {
         return receiveBuilder()
-            .match(View.class, this::onView)
+            .match(ViewChange.class, this::onView)
             .match(RequestTimer.class, this::onRequestTimer)
             .match(ReadResponse.class, this::onReadResponse)
             .build();

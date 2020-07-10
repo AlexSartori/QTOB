@@ -30,7 +30,7 @@ public class ReplicaActor extends AbstractActor {
     private final Map<UpdateID, Integer> updateHistory;
     
     // View & Epoch management
-    private final List<View> views;
+    private final List<ViewChange> views;
     private final Map<Integer, Integer> flushes_received;
 
     // Only used if replica is the coordinator
@@ -95,7 +95,7 @@ public class ReplicaActor extends AbstractActor {
         }
     }
     
-    private void onViewChange(View msg) {
+    private void onViewChange(ViewChange msg) {
         if (this.state == State.CRASHED)
             return;
         
@@ -126,7 +126,7 @@ public class ReplicaActor extends AbstractActor {
             flushes_received.get(msg.id) + 1
         );
         
-        View curr_view = views.get(views.size() - 1);
+        ViewChange curr_view = views.get(views.size() - 1);
         
         if (flushes_received.get(msg.id) == curr_view.peers.size() - 1) {
             // Install view
@@ -291,7 +291,7 @@ public class ReplicaActor extends AbstractActor {
     
     private void onElectionAck(ElectionAck msg) {
 //  for some reason each node gets 3 ElectionAcks from their next node
-//      System.out.println(this.replicaID + " gets an ElectionAck from: " + msg.from);
+      System.out.println(this.replicaID + " gets an ElectionAck from: " + msg.from);
 //  TODO: stop the ElectionAck timeout, hopefully the next node is alive
     }
     
@@ -303,7 +303,7 @@ public class ReplicaActor extends AbstractActor {
     @Override
     public Receive createReceive() {
         return receiveBuilder()
-            .match(View.class, this::onViewChange)
+            .match(ViewChange.class, this::onViewChange)
             .match(Flush.class, this::onFlush)
             .match(ReadRequest.class, this::onReadRequest)
             .match(WriteRequest.class, this::onWriteRequest)
