@@ -1,22 +1,18 @@
 package main;
 import akka.actor.ActorRef;
 import akka.actor.AbstractActor;
-import akka.actor.Cancellable;
 import akka.actor.Props;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import main.Messages.*;
-import scala.concurrent.duration.Duration;
 
 /**
  *
  * @author alex
  */
 public class ReplicaActor extends AbstractActor {
-
     private enum State {
             VIEW_CHANGE,
             ELECTING,
@@ -33,10 +29,11 @@ public class ReplicaActor extends AbstractActor {
     private final List<ViewChange> views;
     private final Map<Integer, Integer> flushes_received;
 
-    // Only used if replica is the coordinator
-    private List<ActorRef> peers;
-    private Integer coordinator;
+    private Integer coordinatorID;
     private int epoch, seqNo;
+    private List<ActorRef> peers;
+    
+    // Only used if replica is coordinator
     private final Map<UpdateID, Integer> acks;
     
 
@@ -50,7 +47,7 @@ public class ReplicaActor extends AbstractActor {
         this.views = new ArrayList<>();
         this.flushes_received = new HashMap<>();
         
-        this.coordinator = null;
+        this.coordinatorID = null;
         this.epoch = -1;  // on the first election this will change to 0
         this.seqNo = 0;
         this.acks = new HashMap<>();
@@ -60,7 +57,7 @@ public class ReplicaActor extends AbstractActor {
         return Props.create(ReplicaActor.class, () -> new ReplicaActor(ID, value));
     }
     
-    private void setToCrashedState() {
+    private void setStateToCrashed() {
         this.state = State.CRASHED;
     }
     
@@ -70,72 +67,149 @@ public class ReplicaActor extends AbstractActor {
         
         // Ring-based Algorithm
         this.state = State.ELECTING;
+        
+        Election msg = createElectionMsg();
+        
+        int next = getNextIDInRing();
+        this.peers.get(next).tell(msg, getSelf());
+    }
+    
+    private Election createElectionMsg() {
         ArrayList<Integer> ids = new ArrayList<>();
         ids.add(replicaID);
+        return new Election(ids);
+    }
+    
+    private Election expandElectionMsg(Election msg) {
+        ArrayList<Integer> ids = new ArrayList<>(msg.IDs);
+        ids.add(replicaID);
+        return new Election(ids);
+    }
+    
+    private void onElection(Election msg) {
+        if (this.state == State.CRASHED)
+            return;
         
-        int next = getNext(this.peers, this.getSelf());
-        System.out.println("from ID " + this.replicaID + 
-                            " to peer index " + next);
+        if (this.state == State.VIEW_CHANGE)
+            return; // Not ready, don't know the group yet
         
+        Boolean end_election = msg.IDs.contains(this.replicaID);
+        ActorRef next = this.peers.get(getNextIDInRing());
+        
+        if (end_election) { // Change to coordinator message type
+            next.tell(
+                new Coordinator(new ArrayList<>(msg.IDs)),
+                getSelf()
+            );
+        } else {
+            // Add my ID and recirculate
+            Election el_msg = expandElectionMsg(msg);
+            next.tell(el_msg, getSelf());
+	
+            // Send back an ElectionAck to the ELECTION sender
+            getSender().tell(
+                new ElectionAck(this.replicaID),
+                getSelf()
+            );
+        }
+    }
+    
+    private void onCoordinator(Coordinator msg) {
+        if (this.state == State.CRASHED)
+            return;
+        if (this.state != State.ELECTING)
+            return; // End recirculation
+        
+	// Election based on ID
+        this.coordinatorID = findMaxID(msg.IDs);
+	
+        if (this.coordinatorID == this.replicaID) {
+            this.epoch++;
+            this.seqNo = 0;
+        }
+	
+        this.state = State.BROADCAST;
+        System.out.println("Replica " + replicaID + " - Coordinator = " + coordinatorID);
+        
+        int next = getNextIDInRing();
         this.peers.get(next).tell(
-            new Election(ids),
+            new Coordinator(new ArrayList<>(msg.IDs)),
             getSelf()
         );
     }
     
-    private int getNext(List<ActorRef> peers, ActorRef replica) {
-        int idx = peers.indexOf(replica);
-		
-        if (idx==peers.size()-1) {
-            return 0;   // First element of the list
-        }
-        else {
-            idx++;
-            return idx;
-        }
+    private int findMaxID(List<Integer> ids) {
+        int max = -1;
+        for (int id : ids)
+            if (id > max)
+                max = id;
+        return max;
     }
     
-    private void onViewChange(ViewChange msg) {
+    private void onElectionAck(ElectionAck msg) {
+        System.out.println("Replica " + this.replicaID + ", ElectionAck from " + msg.from);
+    }
+    
+    private int getNextIDInRing() {
+        int idx = peers.indexOf(getSelf());
+        idx = (idx+1) % peers.size();
+        // System.out.println("Next in ring: " + this.replicaID + " --> " + idx);
+        return idx;
+    }
+    
+    private void onViewChange(ViewChange v) {
         if (this.state == State.CRASHED)
             return;
         
-        System.out.println("Replica " + replicaID + " received new ViewChange: V" + msg.viewID);
         this.state = State.VIEW_CHANGE; // Pause sending new multicasts
+        System.out.println("Replica " + replicaID + " received new ViewChange: V" + v.viewID);
         
-        // Add new view
-        this.views.add(msg);
-                
-        // (?) Send all unstable messages
+        addNewView(v);
+        // TODO (?) Send all unstable messages
+        flushViewToAll(v);
+    }
+    
+    private void addNewView(ViewChange v) {
+        this.views.add(v);
+        flushes_received.put(v.viewID, 0);
+    }
+    
+    private void flushViewToAll(ViewChange v) {
+        Flush msg = new Flush(v.viewID);
         
-        // Flush all
-        flushes_received.put(msg.viewID, 0);
-        for (ActorRef r : msg.peers)
+        for (ActorRef r : v.peers)
             if (r != getSelf())
-                r.tell(
-                    new Flush(views.get(views.size()-1).viewID),
-                    getSelf()
-                );
+                r.tell(msg, getSelf());   
     }
     
     private void onFlush(Flush msg) {
         if (this.state == State.CRASHED)
             return;
         
-        flushes_received.replace(
-            msg.id,
-            flushes_received.get(msg.id) + 1
-        );
+        incrementFlushAks(msg.id);
         
-        ViewChange curr_view = views.get(views.size() - 1);
-        
-        if (flushes_received.get(msg.id) == curr_view.peers.size() - 1) {
-            // Install view
-            System.out.println("Installing view V" + msg.id);
-            this.peers = curr_view.peers;
-            
-            if (this.coordinator == null)
-                beginElection();
+        if (isFlushComplete(msg.id)) {
+            installView(msg.id);
+            beginElection(); // TODO: always?
         }
+    }
+    
+    private int incrementFlushAks(int id) {
+        // TODO: handle flushes for unknown (yet unseen) views
+        int n_flushes = flushes_received.get(id) + 1;
+        flushes_received.replace(id, n_flushes);
+        return n_flushes;
+    }
+    
+    private boolean isFlushComplete(int id) {
+        int n_peers = views.get(id).peers.size();
+        int n_flushes = flushes_received.get(id);
+        return n_flushes == n_peers - 1;
+    }
+    
+    private void installView(int id) {
+        System.out.println("Installing view V" + id);
+        this.peers = this.views.get(id).peers;
     }
     
     private void onReadRequest(ReadRequest req) {
@@ -163,23 +237,26 @@ public class ReplicaActor extends AbstractActor {
             return;
         }
         
-        if (this.coordinator == this.replicaID) {
-            // Propagate Update Msg
-            UpdateID u_id = new UpdateID(epoch, seqNo++);  // be careful with ++
-            Update u = new Update(u_id, req.new_value);
-            
-            this.acks.put(u_id, 0);
-            
-            for (ActorRef a : this.peers)
-                if (a != getSelf())
-                    a.tell(new UpdateMsg(u), getSelf());
+        if (this.coordinatorID == this.replicaID) {
+            propagateUpdate(req.new_value);
         } else {
             // Forward to coordinator
-            this.peers.get(this.coordinator).tell(  // ID may not correspond to index
-                new WriteRequest(req.client, req.new_value),
+            this.peers.get(this.coordinatorID).tell(  // ID may not correspond to index
+                req,
                 getSelf()
             );
         }
+    }
+    
+    private void propagateUpdate(int value) {
+        UpdateID u_id = new UpdateID(epoch, seqNo++);  // be careful with ++
+        Update u = new Update(u_id, value);
+
+        this.acks.put(u_id, 0);
+
+        for (ActorRef a : this.peers)
+            if (a != getSelf())
+                a.tell(new UpdateMsg(u), getSelf());
     }
     
     private void onUpdateMsg(UpdateMsg msg) {
@@ -196,16 +273,15 @@ public class ReplicaActor extends AbstractActor {
         if (this.state == State.CRASHED)
             return;
         
-        if (this.coordinator != this.replicaID) {
+        if (this.coordinatorID != this.replicaID) {
             System.err.println("!!! Received Ack even if not coordinator");
             return;
         }
         
         // Wait for Q acks and propagate writeok to everyone
-        int curr_acks = acks.get(msg.u.id) + 1;
-        this.acks.replace(msg.u.id, curr_acks);
-        
+        int curr_acks = incrementUpdateAcks(msg.u.id);
         int Q = Math.floorDiv(peers.size(), 2) + 1;
+        
         if (curr_acks == Q) {
             for (ActorRef r : peers)
                 r.tell(
@@ -215,89 +291,29 @@ public class ReplicaActor extends AbstractActor {
         }
     }
     
+    private int incrementUpdateAcks(UpdateID id) {
+        int n_acks = this.acks.get(id) + 1;
+        this.acks.replace(id, n_acks);
+        return n_acks;
+    }
+    
     private void onWriteOk(WriteOk msg) {
         if (this.state == State.CRASHED)
             return;
         
-        Update u = msg.u;
+        applyWrite(msg.u);
+    }
+    
+    private void applyWrite(Update u) {
         this.updateHistory.put(u.id, u.value);
         this.value = u.value;
         
         System.out.println("Confirmed write <" + u.id.epoch + "," + u.id.seqNo + ">: " + u.value);
     }
 
-    private void onElection (Election msg) {
-        if (this.state == State.CRASHED)
-            return;
-        
-        if (this.state == State.VIEW_CHANGE)
-            return; // Not ready, don't know the group yet
-        
-        Boolean recirculate = !msg.IDs.contains(this.replicaID);
-        int next = getNext(this.peers, this.getSelf());
-        
-        if (recirculate) {
-            // Add my ID and recirculate
-            ArrayList<Integer> ids = new ArrayList<>(msg.IDs);
-            ids.add(this.replicaID);
-            
-	    // TODO add the last update in the Election msg
-            this.peers.get(next).tell(
-                new Election(ids),
-                getSelf()
-            );
-			
-        // Send back an ElectionAck to the ELECTION sender
-            getSender().tell(
-                new ElectionAck(this.replicaID),
-                getSelf()
-            );
-        } else {
-            // Change to coordinator message type
-            this.peers.get(next).tell(
-                new Coordinator(new ArrayList<>(msg.IDs)),
-                getSelf()
-            );
-        }
-    }
-    
-    private void onCoordinator(Coordinator msg) {
-        if (this.state == State.CRASHED)
-            return;
-        if (this.state != State.ELECTING)
-            return; // End recirculation
-        
-	// Election based on ID
-        int coord = -1;
-        for (int id : msg.IDs)
-            if (id > coord)
-                coord = id;
-        this.coordinator = coord;
-	
-        if (this.coordinator == this.replicaID) {
-            this.epoch++;
-            this.seqNo = 0;
-        }
-	
-        this.state = State.BROADCAST;
-        System.out.println("Replica " + replicaID + " - Coordinator => " + coord);
-        
-        int next = getNext(this.peers, this.getSelf());
-        this.peers.get(next).tell(
-            new Coordinator(new ArrayList<>(msg.IDs)),
-            getSelf()
-        );
-    }
-    
-    private void onElectionAck(ElectionAck msg) {
-//  for some reason each node gets 3 ElectionAcks from their next node
-      System.out.println(this.replicaID + " gets an ElectionAck from: " + msg.from);
-//  TODO: stop the ElectionAck timeout, hopefully the next node is alive
-    }
-    
     private void onCrashMsg(CrashMsg msg) {
         System.out.println("Replica " + replicaID + " setting state to CRASHED");
-        setToCrashedState();
+        setStateToCrashed();
     }
     
     @Override
