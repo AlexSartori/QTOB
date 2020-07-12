@@ -34,7 +34,7 @@ public class ReplicaActor extends AbstractActor {
     private List<ActorRef> peers;
     
     // Only used if replica is coordinator
-    private final Map<UpdateID, Integer> acks;
+    private final Map<UpdateID, Integer> updateAcks;
     
 
     
@@ -50,7 +50,7 @@ public class ReplicaActor extends AbstractActor {
         this.coordinatorID = null;
         this.epoch = -1;  // on the first election this will change to 0
         this.seqNo = 0;
-        this.acks = new HashMap<>();
+        this.updateAcks = new HashMap<>();
     }
 
     static public Props props(int ID, int value) {
@@ -252,7 +252,7 @@ public class ReplicaActor extends AbstractActor {
         UpdateID u_id = new UpdateID(epoch, seqNo++);  // be careful with ++
         Update u = new Update(u_id, value);
 
-        this.acks.put(u_id, 0);
+        this.updateAcks.put(u_id, 0);
 
         for (ActorRef a : this.peers)
             if (a != getSelf())
@@ -292,8 +292,8 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private int incrementUpdateAcks(UpdateID id) {
-        int n_acks = this.acks.get(id) + 1;
-        this.acks.replace(id, n_acks);
+        int n_acks = this.updateAcks.get(id) + 1;
+        this.updateAcks.replace(id, n_acks);
         return n_acks;
     }
     
