@@ -20,7 +20,7 @@ public class QTOB {
     final static int N_CLIENTS = 4;
     final static int N_REPLICAS = 4;
     final static int MAX_NWK_DELAY_MS = 200;
-    final static int CRASH_TIMEOUT_MS = MAX_NWK_DELAY_MS + 100;
+    final static int NWK_TIMEOUT_MS = MAX_NWK_DELAY_MS + 100;
     final static Random RNG = new Random();
     static ActorSystem akka;
     

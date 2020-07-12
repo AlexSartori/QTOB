@@ -129,7 +129,6 @@ public class ReplicaActor extends AbstractActor {
         }
 	
         this.state = State.BROADCAST;
-//yes        System.out.println("Replica " + replicaID + " - Coordinator = " + coordinatorID);
         
         int next = getNextIDInRing();
         this.peers.get(next).tell(
@@ -147,14 +146,12 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onElectionAck(ElectionAck msg) {
-//yes        System.out.println("Replica " + this.replicaID + ", ElectionAck from " + msg.from);
+        return; // TODO timeout node and create viewchange
     }
     
     private int getNextIDInRing() {
         int idx = peers.indexOf(getSelf());
-        idx = (idx+1) % peers.size();
-        // System.out.println("Next in ring: " + this.replicaID + " --> " + idx);
-        return idx;
+        return (idx+1) % peers.size();
     }
     
     private void onViewChange(ViewChange v) {
@@ -162,8 +159,7 @@ public class ReplicaActor extends AbstractActor {
             return;
         
         this.state = State.VIEW_CHANGE; // Pause sending new multicasts
-//yes        System.out.println("Replica " + replicaID + " received new ViewChange: V" + v.viewID);
-        
+       
         addNewView(v);
         // TODO (?) Send all unstable messages
         flushViewToAll(v);
@@ -208,7 +204,6 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void installView(int id) {
-//yes        System.out.println("Installing view V" + id);
         this.peers = this.views.get(id).peers;
     }
     
@@ -228,12 +223,12 @@ public class ReplicaActor extends AbstractActor {
         }
         
         if (this.state == State.ELECTING) {
-//yes            System.out.println("Replica " + this.replicaID + " election in progress, dropping request (<-- TODO!)");
+            // TODO: enqueue requests during elections");
             return;
         }
         
         if (this.state == State.VIEW_CHANGE) {
-//yes            System.out.println("TODO: enqueue requests during view changes");
+            // TODO: enqueue requests during view changes");
             return;
         }
         
@@ -274,7 +269,7 @@ public class ReplicaActor extends AbstractActor {
             return;
         
         if (this.coordinatorID != this.replicaID) {
-//yes            System.err.println("!!! Received Ack even if not coordinator");
+            System.err.println("!!! Received Ack even if not coordinator");
             return;
         }
         
@@ -307,8 +302,6 @@ public class ReplicaActor extends AbstractActor {
     private void applyWrite(Update u) {
         this.updateHistory.put(u.id, u.value);
         this.value = u.value;
-        
-//yes        System.out.println("Confirmed write <" + u.id.epoch + "," + u.id.seqNo + ">: " + u.value);
     }
 
     private void onCrashMsg(CrashMsg msg) {

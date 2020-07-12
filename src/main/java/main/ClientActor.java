@@ -18,19 +18,16 @@ import scala.concurrent.duration.Duration;
 public class ClientActor extends AbstractActor {
     private final int clientID;
     private final Random RNG;
-    
-    private final int READ_REQ_TIMEOUT = 100;
-    private final List<Cancellable> ReadTimeouts;
-    
-    private ActorRef target_replica;
-    private int target_replica_id;
+    private final List<ActorRef> replicas;
+    private Integer target_replica_id;
+    private final List<Cancellable> read_timeouts;
     
     public ClientActor(int id) {
         this.clientID = id;
-        this.target_replica = null;  // ---
-        this.target_replica_id = -1; // TODO ridondante, trovare modo per ricavare una dall'altra
+        this.replicas = new ArrayList<>();
+        this.target_replica_id = null;
         this.RNG = new Random();
-        this.ReadTimeouts = new ArrayList<>();
+        this.read_timeouts = new ArrayList<>();
     }
 
     static public Props props(int id) {
@@ -64,30 +61,28 @@ public class ClientActor extends AbstractActor {
     
     private void simulateNwkDelay() {
         try {
-            Thread.sleep(this.RNG.nextInt(main.QTOB.MAX_NWK_DELAY_MS));
+            Thread.sleep(this.RNG.nextInt(QTOB.MAX_NWK_DELAY_MS));
         } catch (InterruptedException ex) {
             System.err.println("Could not simulate network delay");
         }
     }
     
     private void sendReadReq() {
-        target_replica.tell(
+        this.replicas.get(this.target_replica_id).tell(
             new ReadRequest(getSelf()),
             getSelf()
         );
         
         System.out.println("Client " + this.clientID + " read req to " + target_replica_id);
         
-        setTimeout(this.READ_REQ_TIMEOUT);
+        setTimeout(QTOB.NWK_TIMEOUT_MS);
     }
     
     private void sendWriteReq() {
-        target_replica.tell(
+        this.replicas.get(this.target_replica_id).tell(
             new WriteRequest(getSelf(), this.RNG.nextInt(1000)),
             getSelf()
         );
-        
-//yes        System.out.println("Client " + this.clientID + " write req to " + target_replica_id);
     }
     
     private void setTimeout(int time) {
@@ -99,29 +94,31 @@ public class ClientActor extends AbstractActor {
             getSelf()           // Source
         );
         
-        this.ReadTimeouts.add(timeout);
+        this.read_timeouts.add(timeout);
+    }
+    
+    private void onReadTimeout(ReadTimeout msg) {
+        this.read_timeouts.remove(0);
+        chooseTargetReplica();
+    }
+    
+    private void chooseTargetReplica() {
+        this.target_replica_id = RNG.nextInt(this.replicas.size());
     }
     
     private void onReadResponse(ReadResponse res) {
-        // Response obtained, timeout not longer needed
-        Cancellable timeout = this.ReadTimeouts.remove(0);
+        // Response obtained, timeout no longer needed
+        Cancellable timeout = this.read_timeouts.remove(0);
         timeout.cancel();
         
         System.out.println("Client " + this.clientID + " read done: " + res.value);
     }
     
     private void onViewChange(ViewChange msg) {
-        // Choose a destination replica
-        this.target_replica_id = RNG.nextInt(msg.peers.size());
-        this.target_replica = msg.peers.get(target_replica_id);
-    }
-    
-    private void onReadTimeout(ReadTimeout msg) {
-        System.out.println("\nTIMEOUT from replica " + this.target_replica_id);
-        System.out.println("ReadTimeouts size: " + this.ReadTimeouts.size());
-        this.ReadTimeouts.remove(0);
-        System.out.println("Deleted timeout of client " + this.clientID);
-        System.out.println("ReadTimeouts size: " + this.ReadTimeouts.size());
+        for (ActorRef a : msg.peers)
+            this.replicas.add(a);
+        
+        chooseTargetReplica();
     }
     
     @Override
