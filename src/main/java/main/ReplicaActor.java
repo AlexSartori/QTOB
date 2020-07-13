@@ -38,7 +38,6 @@ public class ReplicaActor extends AbstractActor {
     // Only used if replica is coordinator
     private final Map<UpdateID, Integer> updateAcks;
     
-
     
     public ReplicaActor(int ID, int value) {
         this.state = State.ELECTING;

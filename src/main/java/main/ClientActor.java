@@ -1,7 +1,6 @@
 package main;
 import akka.actor.ActorRef;
 import akka.actor.AbstractActor;
-import akka.actor.Cancellable;
 import akka.actor.Props;
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -20,14 +19,14 @@ public class ClientActor extends AbstractActor {
     private final Random RNG;
     private final List<ActorRef> replicas;
     private Integer target_replica_id;
-    private final List<Cancellable> read_timeouts;
+    private final TimeoutManager read_req_timers;
     
     public ClientActor(int id) {
         this.clientID = id;
         this.replicas = new ArrayList<>();
         this.target_replica_id = null;
         this.RNG = new Random();
-        this.read_timeouts = new ArrayList<>();
+        this.read_req_timers = new TimeoutManager(this::onReadTimeout);
     }
 
     static public Props props(int id) {
@@ -73,7 +72,7 @@ public class ClientActor extends AbstractActor {
             getSelf()
         );
         
-        setTimeout(QTOB.NWK_TIMEOUT_MS);
+        read_req_timers.addTimer(QTOB.NWK_TIMEOUT_MS);
         System.out.println("Client " + this.clientID + " read req to " + target_replica_id);
     }
     
@@ -84,20 +83,7 @@ public class ClientActor extends AbstractActor {
         );
     }
     
-    private void setTimeout(int time) {
-        Cancellable timeout = getContext().system().scheduler().scheduleOnce(
-            Duration.create(time, TimeUnit.MILLISECONDS),
-            getSelf(),          // Destination
-            new ReadTimeout(),  // the message to send
-            getContext().system().dispatcher(),
-            getSelf()           // Source
-        );
-        
-        this.read_timeouts.add(timeout);
-    }
-    
-    private void onReadTimeout(ReadTimeout msg) {
-        this.read_timeouts.remove(0);
+    private void onReadTimeout() {
         chooseTargetReplica();
     }
     
@@ -106,13 +92,8 @@ public class ClientActor extends AbstractActor {
     }
     
     private void onReadResponse(ReadResponse res) {
-        deleteFirstTimeout();        
+        read_req_timers.cancelFirstTimer();
         System.out.println("Client " + this.clientID + " read done: " + res.value);
-    }
-    
-    private void deleteFirstTimeout() {
-        Cancellable timeout = this.read_timeouts.remove(0);
-        timeout.cancel();
     }
     
     private void onViewChange(ViewChange msg) {
@@ -128,7 +109,6 @@ public class ClientActor extends AbstractActor {
             .match(ViewChange.class, this::onViewChange)
             .match(RequestTimer.class, this::onRequestTimer)
             .match(ReadResponse.class, this::onReadResponse)
-            .match(ReadTimeout.class, this::onReadTimeout)
             .build();
     }
     
