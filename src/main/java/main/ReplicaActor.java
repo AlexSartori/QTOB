@@ -37,6 +37,7 @@ public class ReplicaActor extends AbstractActor {
     
     // Only used if replica is coordinator
     private final Map<UpdateID, Integer> updateAcks;
+    private final TimeoutManager election_ack_timers;
     
     
     public ReplicaActor(int ID, int value) {
@@ -51,7 +52,9 @@ public class ReplicaActor extends AbstractActor {
         this.coordinatorID = null;
         this.epoch = -1;  // on the first election this will change to 0
         this.seqNo = 0;
+        
         this.updateAcks = new HashMap<>();
+        this.election_ack_timers = new TimeoutManager(this::onElectionAckTimeout);
     }
 
     static public Props props(int ID, int value) {
@@ -106,6 +109,7 @@ public class ReplicaActor extends AbstractActor {
             // Add my ID and recirculate
             Election el_msg = expandElectionMsg(msg);
             next.tell(el_msg, getSelf());
+            this.election_ack_timers.addTimer(QTOB.NWK_TIMEOUT_MS);
 	
             // Send back an ElectionAck to the ELECTION sender
             getSender().tell(
@@ -158,7 +162,11 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onElectionAck(ElectionAck msg) {
-        return; // TODO timeout node and create viewchange
+        this.election_ack_timers.cancelFirstTimer();
+    }
+    
+    private void onElectionAckTimeout() {
+        System.out.println("Election Ack timeout"); // TODO: create new View and propagate
     }
     
     private int getNextIDInRing() {
