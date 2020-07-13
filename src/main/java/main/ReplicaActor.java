@@ -6,7 +6,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import main.Messages.*;
+import scala.concurrent.duration.Duration;
 
 /**
  *
@@ -126,6 +128,7 @@ public class ReplicaActor extends AbstractActor {
         if (this.coordinatorID == this.replicaID) {
             this.epoch++;
             this.seqNo = 0;
+            scheduleNextHeartbeatReminder();
         }
 	
         this.state = State.BROADCAST;
@@ -143,6 +146,16 @@ public class ReplicaActor extends AbstractActor {
             if (id > max)
                 max = id;
         return max;
+    }
+    
+    private void scheduleNextHeartbeatReminder() {
+        getContext().system().scheduler().scheduleOnce(
+            Duration.create(QTOB.HEARTBEAT_DELAY_MS, TimeUnit.MILLISECONDS),
+            getSelf(),                            // To whom
+            new HeartbeatReminder(),              // Msg to send
+            getContext().system().dispatcher(),   // System dispatcher
+            getSelf()                             // Sender
+        );
     }
     
     private void onElectionAck(ElectionAck msg) {
@@ -223,12 +236,12 @@ public class ReplicaActor extends AbstractActor {
         }
         
         if (this.state == State.ELECTING) {
-            // TODO: enqueue requests during elections");
+            // TODO: enqueue requests during elections
             return;
         }
         
         if (this.state == State.VIEW_CHANGE) {
-            // TODO: enqueue requests during view changes");
+            // TODO: enqueue requests during view changes
             return;
         }
         
@@ -309,6 +322,21 @@ public class ReplicaActor extends AbstractActor {
         setStateToCrashed();
     }
     
+    private void onHeartbeatReminder(HeartbeatReminder msg) {
+        if (this.coordinatorID == null || this.coordinatorID != this.replicaID)
+            return;
+        
+        for (ActorRef a : this.peers)
+            a.tell(new Heartbeat(), getSelf());
+        
+        scheduleNextHeartbeatReminder();
+    }
+    
+    private void onHeartbeat(Heartbeat msg) {
+        // TODO: cancel coordinator crash timeout (to be implemented)
+        // System.out.println("Replica " + replicaID + " received heartbeat");
+    }
+    
     @Override
     public Receive createReceive() {
         return receiveBuilder()
@@ -323,6 +351,8 @@ public class ReplicaActor extends AbstractActor {
             .match(ElectionAck.class, this::onElectionAck)
             .match(Coordinator.class, this::onCoordinator)
             .match(CrashMsg.class, this::onCrashMsg)
+            .match(HeartbeatReminder.class, this::onHeartbeatReminder)
+            .match(Heartbeat.class, this::onHeartbeat)
             .build();
     }
 }

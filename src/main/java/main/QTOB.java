@@ -21,6 +21,7 @@ public class QTOB {
     final static int N_REPLICAS = 4;
     final static int MAX_NWK_DELAY_MS = 200;
     final static int NWK_TIMEOUT_MS = MAX_NWK_DELAY_MS + 100;
+    final static int HEARTBEAT_DELAY_MS = 500;
     final static Random RNG = new Random();
     static ActorSystem akka;
     
@@ -76,7 +77,7 @@ public class QTOB {
         for (int i = 0; i < how_many; i++) {
             akka.scheduler().scheduleOnce(
                 Duration.create(2 + RNG.nextInt(5), TimeUnit.SECONDS), // When
-                replicas.get(i),     // To who
+                replicas.get(i),     // To whom
                 new CrashMsg(),      // Msg to send
                 akka.dispatcher(),   // System dispatcher
                 ActorRef.noSender()  // Source of the msg

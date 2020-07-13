@@ -73,9 +73,8 @@ public class ClientActor extends AbstractActor {
             getSelf()
         );
         
-        System.out.println("Client " + this.clientID + " read req to " + target_replica_id);
-        
         setTimeout(QTOB.NWK_TIMEOUT_MS);
+        System.out.println("Client " + this.clientID + " read req to " + target_replica_id);
     }
     
     private void sendWriteReq() {
@@ -107,11 +106,13 @@ public class ClientActor extends AbstractActor {
     }
     
     private void onReadResponse(ReadResponse res) {
-        // Response obtained, timeout no longer needed
+        deleteFirstTimeout();        
+        System.out.println("Client " + this.clientID + " read done: " + res.value);
+    }
+    
+    private void deleteFirstTimeout() {
         Cancellable timeout = this.read_timeouts.remove(0);
         timeout.cancel();
-        
-        System.out.println("Client " + this.clientID + " read done: " + res.value);
     }
     
     private void onViewChange(ViewChange msg) {
@@ -130,8 +131,6 @@ public class ClientActor extends AbstractActor {
             .match(ReadTimeout.class, this::onReadTimeout)
             .build();
     }
-    
-    // ========================================================================= Message classes
     
     private static class RequestTimer implements Serializable { }
     
