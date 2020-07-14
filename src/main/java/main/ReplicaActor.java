@@ -28,7 +28,7 @@ public class ReplicaActor extends AbstractActor {
     private final Map<UpdateID, Integer> updateHistory;
     
     // View & Epoch management
-    private final List<ViewChange> views;
+    private final List<View> views;
     private final Map<Integer, Integer> flushes_received;
 
     private Integer coordinatorID;
@@ -180,17 +180,17 @@ public class ReplicaActor extends AbstractActor {
         
         this.state = State.VIEW_CHANGE; // Pause sending new multicasts
        
-        addNewView(v);
+        addNewView(msg.view);
         // TODO (?) Send all unstable messages
-        flushViewToAll(v);
+        flushViewToAll(msg.view);
     }
     
-    private void addNewView(ViewChange v) {
+    private void addNewView(View v) {
         this.views.add(v);
         flushes_received.put(v.viewID, 0);
     }
     
-    private void flushViewToAll(ViewChange v) {
+    private void flushViewToAll(View v) {
         Flush msg = new Flush(v.viewID);
         
         for (ActorRef r : v.peers)

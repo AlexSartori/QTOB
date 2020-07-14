@@ -11,12 +11,10 @@ import java.util.List;
  */
 public class Messages {    
     public static class ViewChange implements Serializable {
-        public int viewID;
-        public List<ActorRef> peers;
+        public View view;
 
-        public ViewChange(int id, List<ActorRef> peers) {
-            this.viewID = id;
-            this.peers = Collections.unmodifiableList(peers);
+        public ViewChange(View v) {
+            this.view = v;
         }
     }
     

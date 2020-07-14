@@ -35,7 +35,8 @@ public class QTOB {
         List<ActorRef> replicas = createReplicas();
 		
         // Make everyone aware of the group
-        ViewChange msg = new ViewChange(0, replicas);
+        View v = new View(0, replicas);
+        ViewChange msg = new ViewChange(v);
         sendToMany(msg, clients);
         sendToMany(msg, replicas);
         

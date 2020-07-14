@@ -97,7 +97,7 @@ public class ClientActor extends AbstractActor {
     }
     
     private void onViewChange(ViewChange msg) {
-        for (ActorRef a : msg.peers)
+        for (ActorRef a : msg.view.peers)
             this.replicas.add(a);
         
         chooseTargetReplica();
