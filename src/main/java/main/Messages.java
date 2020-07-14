@@ -10,8 +10,16 @@ import java.util.List;
  * @author alex
  */
 public class Messages {    
+    public static class InitializeGroup implements Serializable {
+        public final List<ActorRef> group;
+        
+        public InitializeGroup(List<ActorRef> group) {
+            this.group = group;
+        }
+    }
+    
     public static class ViewChange implements Serializable {
-        public View view;
+        public final View view;
 
         public ViewChange(View v) {
             this.view = v;

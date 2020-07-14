@@ -35,10 +35,7 @@ public class QTOB {
         List<ActorRef> replicas = createReplicas();
 		
         // Make everyone aware of the group
-        View v = new View(0, replicas);
-        ViewChange msg = new ViewChange(v);
-        sendToMany(msg, clients);
-        sendToMany(msg, replicas);
+        initializeActors(replicas, clients);
         
         // Schedule random crashes
         scheduleCrashes(replicas);
@@ -66,8 +63,12 @@ public class QTOB {
         return replicas;
     }
     
-    private static void sendToMany(Serializable msg, List<ActorRef> recipents) {
-        for (ActorRef r : recipents)
+    private static void initializeActors(List<ActorRef> replicas, List<ActorRef> clients) {
+        InitializeGroup msg = new InitializeGroup(replicas);
+        
+        replicas.get(0).tell(msg, ActorRef.noSender());
+        
+        for (ActorRef r : clients)
             r.tell(msg, ActorRef.noSender());
     }
 
@@ -93,6 +94,14 @@ public class QTOB {
         }
         catch (IOException ioe) {
             System.out.println("Exiting...");
+        }
+    }
+    
+    public static void simulateNwkDelay() {
+        try {
+            Thread.sleep(RNG.nextInt(MAX_NWK_DELAY_MS));
+        } catch (InterruptedException ex) {
+            System.err.println("Could not simulate network delay");
         }
     }
 }

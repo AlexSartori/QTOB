@@ -16,10 +16,10 @@ import scala.concurrent.duration.Duration;
  */
 public class ReplicaActor extends AbstractActor {
     private enum State {
-            VIEW_CHANGE,
-            ELECTING,
-            BROADCAST,
-            CRASHED
+        VIEW_CHANGE,
+        ELECTING,
+        BROADCAST,
+        CRASHED
     };
     private State state;
     
@@ -41,7 +41,7 @@ public class ReplicaActor extends AbstractActor {
     
     
     public ReplicaActor(int ID, int value) {
-        this.state = State.ELECTING;
+        this.state = State.VIEW_CHANGE;
         this.replicaID = ID;
         this.peers = new ArrayList<>();
         this.value = value;
@@ -73,7 +73,9 @@ public class ReplicaActor extends AbstractActor {
         Election msg = createElectionMsg();
         
         int next = getNextIDInRing();
+        QTOB.simulateNwkDelay();
         this.peers.get(next).tell(msg, getSelf());
+        this.election_ack_timers.addTimer(QTOB.NWK_TIMEOUT_MS);
     }
     
     private Election createElectionMsg() {
@@ -118,11 +120,13 @@ public class ReplicaActor extends AbstractActor {
         if (this.state != State.ELECTING)
             return; // End recirculation
         
+        this.election_ack_timers.cancelFirstTimer();
+        
 	// Election based on ID
         this.coordinatorID = findMaxID(msg.IDs);
 	
         if (this.coordinatorID == this.replicaID) {
-            this.epoch++;
+            this.epoch++; // Non dovrebbe incrementare al cambio di View?
             this.seqNo = 0;
             scheduleNextHeartbeatReminder();
         }
@@ -159,7 +163,13 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onElectionAckTimeout() {
-        System.out.println("Election Ack timeout"); // TODO: create new View and propagate
+        System.out.println("Election Ack timeout");
+        
+        // Create and propagate new View
+        int crashed = getNextIDInRing();
+        List<ActorRef> new_peers = new ArrayList<>(this.peers);
+        new_peers.remove(crashed);
+        createAndPropagateView(new_peers);
     }
     
     private int getNextIDInRing() {
@@ -167,17 +177,29 @@ public class ReplicaActor extends AbstractActor {
         return (idx+1) % peers.size();
     }
     
-    private void onViewChange(ViewChange msg) {
-        this.state = State.VIEW_CHANGE; // Pause sending new multicasts
-       
-        addNewView(msg.view);
-        // TODO (?) Send all unstable messages
-        flushViewToAll(msg.view);
+    private void createAndPropagateView(List<ActorRef> new_group) {
+        this.state = State.VIEW_CHANGE;
+        this.epoch++;
+        
+        View v = new View(this.epoch, new_group);
+        addNewView(v);
+        
+        ViewChange msg = new ViewChange(v);
+        for (ActorRef a : new_group)
+           a.tell(msg, getSelf()); 
     }
     
     private void addNewView(View v) {
         this.views.add(v);
         flushes_received.put(v.viewID, 0);
+    }
+    
+    private void onViewChange(ViewChange msg) {
+        this.state = State.VIEW_CHANGE; // Pause sending new multicasts
+        
+        addNewView(msg.view);
+        // TODO (?) Send all unstable messages
+        flushViewToAll(msg.view);
     }
     
     private void flushViewToAll(View v) {
@@ -263,7 +285,7 @@ public class ReplicaActor extends AbstractActor {
     
     private void onUpdateAck(UpdateAck msg) {
         if (this.coordinatorID != this.replicaID) {
-            System.err.println("!!! Received Ack even if not coordinator");
+            System.err.println("!!! Received UpdateAck even if not coordinator");
             return;
         }
         
@@ -318,6 +340,7 @@ public class ReplicaActor extends AbstractActor {
     @Override
     public Receive createReceive() {
         return receiveBuilder()
+            .match(InitializeGroup.class, (InitializeGroup msg) -> createAndPropagateView(msg.group))
             .match(ViewChange.class, this::onViewChange)
             .match(Flush.class, this::onFlush)
             .match(ReadRequest.class, this::onReadRequest)

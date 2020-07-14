@@ -50,20 +50,12 @@ public class ClientActor extends AbstractActor {
     }
     
     private void onRequestTimer(RequestTimer req) {        
-        simulateNwkDelay();
+        QTOB.simulateNwkDelay();
         
         if (this.RNG.nextBoolean())
             sendReadReq();
         else
             sendWriteReq();
-    }
-    
-    private void simulateNwkDelay() {
-        try {
-            Thread.sleep(this.RNG.nextInt(QTOB.MAX_NWK_DELAY_MS));
-        } catch (InterruptedException ex) {
-            System.err.println("Could not simulate network delay");
-        }
     }
     
     private void sendReadReq() {
@@ -96,8 +88,8 @@ public class ClientActor extends AbstractActor {
         System.out.println("Client " + this.clientID + " read done: " + res.value);
     }
     
-    private void onViewChange(ViewChange msg) {
-        for (ActorRef a : msg.view.peers)
+    private void onInitializeGroup(InitializeGroup msg) {
+        for (ActorRef a : msg.group)
             this.replicas.add(a);
         
         chooseTargetReplica();
@@ -106,7 +98,7 @@ public class ClientActor extends AbstractActor {
     @Override
     public Receive createReceive() {
         return receiveBuilder()
-            .match(ViewChange.class, this::onViewChange)
+            .match(InitializeGroup.class, this::onInitializeGroup)
             .match(RequestTimer.class, this::onRequestTimer)
             .match(ReadResponse.class, this::onReadResponse)
             .build();
