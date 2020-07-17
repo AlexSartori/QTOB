@@ -5,7 +5,6 @@ import akka.actor.ActorSystem;
 import java.util.List;
 import java.util.ArrayList;
 import java.io.IOException;
-import java.io.Serializable;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 import main.Messages.*;
@@ -17,6 +16,7 @@ import scala.concurrent.duration.Duration;
  * @author alex
  */
 public class QTOB {
+    final static boolean VERBOSE = false;
     final static int N_CLIENTS = 4;
     final static int N_REPLICAS = 4;
     final static int MAX_NWK_DELAY_MS = 200;

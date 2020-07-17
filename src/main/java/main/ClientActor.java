@@ -19,14 +19,14 @@ public class ClientActor extends AbstractActor {
     private final Random RNG;
     private final List<ActorRef> replicas;
     private Integer target_replica_id;
-    private final TimeoutManager read_req_timers;
+    private final TimeoutList read_req_timers;
     
     public ClientActor(int id) {
         this.clientID = id;
         this.replicas = new ArrayList<>();
         this.target_replica_id = null;
         this.RNG = new Random();
-        this.read_req_timers = new TimeoutManager(this::onReadTimeout);
+        this.read_req_timers = new TimeoutList(this::onReadTimeout, QTOB.NWK_TIMEOUT_MS);
     }
 
     static public Props props(int id) {
@@ -64,7 +64,7 @@ public class ClientActor extends AbstractActor {
             getSelf()
         );
         
-        read_req_timers.addTimer(QTOB.NWK_TIMEOUT_MS);
+        read_req_timers.addTimer();
         System.out.println("Client " + this.clientID + " read req to " + target_replica_id);
     }
     
@@ -76,6 +76,7 @@ public class ClientActor extends AbstractActor {
     }
     
     private void onReadTimeout() {
+        if (QTOB.VERBOSE) System.out.println("Client " + clientID + " timeout for replica " + target_replica_id);
         chooseTargetReplica();
     }
     
@@ -105,6 +106,4 @@ public class ClientActor extends AbstractActor {
     }
     
     private static class RequestTimer implements Serializable { }
-    
-    private static class ReadTimeout implements Serializable { }
 }

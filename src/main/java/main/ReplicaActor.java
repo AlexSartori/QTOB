@@ -28,7 +28,7 @@ public class ReplicaActor extends AbstractActor {
     private final Map<UpdateID, Integer> updateHistory;
     
     // View & Epoch management
-    private final List<View> views;
+    private final Map<Integer, View> views;
     private final Map<Integer, Integer> flushes_received;
 
     private Integer coordinatorID;
@@ -37,7 +37,7 @@ public class ReplicaActor extends AbstractActor {
     
     // Only used if replica is coordinator
     private final Map<UpdateID, Integer> updateAcks;
-    private final TimeoutManager election_ack_timers;
+    private final TimeoutList election_ack_timers;
     
     
     public ReplicaActor(int ID, int value) {
@@ -46,7 +46,7 @@ public class ReplicaActor extends AbstractActor {
         this.peers = new ArrayList<>();
         this.value = value;
         this.updateHistory = new HashMap<>(); // to be changed, maybe
-        this.views = new ArrayList<>();
+        this.views = new HashMap<>();
         this.flushes_received = new HashMap<>();
         
         this.coordinatorID = null;
@@ -54,7 +54,7 @@ public class ReplicaActor extends AbstractActor {
         this.seqNo = 0;
         
         this.updateAcks = new HashMap<>();
-        this.election_ack_timers = new TimeoutManager(this::onElectionAckTimeout);
+        this.election_ack_timers = new TimeoutList(this::onElectionAckTimeout, QTOB.NWK_TIMEOUT_MS);
     }
 
     static public Props props(int ID, int value) {
@@ -67,6 +67,8 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void beginElection() {
+        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " beginElection()");
+        
         // Ring-based Algorithm
         this.state = State.ELECTING;
         
@@ -75,7 +77,7 @@ public class ReplicaActor extends AbstractActor {
         int next = getNextIDInRing();
         QTOB.simulateNwkDelay();
         this.peers.get(next).tell(msg, getSelf());
-        this.election_ack_timers.addTimer(QTOB.NWK_TIMEOUT_MS);
+        this.election_ack_timers.addTimer();
     }
     
     private Election createElectionMsg() {
@@ -93,6 +95,8 @@ public class ReplicaActor extends AbstractActor {
     private void onElection(Election msg) {
         if (this.state == State.VIEW_CHANGE)
             return; // Not ready, don't know the group yet
+        if (this.state != State.ELECTING)
+            this.state = State.ELECTING;
         
         Boolean end_election = msg.IDs.contains(this.replicaID);
         ActorRef next = this.peers.get(getNextIDInRing());
@@ -106,27 +110,26 @@ public class ReplicaActor extends AbstractActor {
             // Add my ID and recirculate
             Election el_msg = expandElectionMsg(msg);
             next.tell(el_msg, getSelf());
-            this.election_ack_timers.addTimer(QTOB.NWK_TIMEOUT_MS);
+            this.election_ack_timers.addTimer();
 	
-            // Send back an ElectionAck to the ELECTION sender
-            getSender().tell(
-                new ElectionAck(this.replicaID),
-                getSelf()
-            );
         }
+        // Send back an ElectionAck to the ELECTION sender
+        getSender().tell(
+            new ElectionAck(this.replicaID),
+            getSelf()
+        );
     }
     
     private void onCoordinator(Coordinator msg) {
         if (this.state != State.ELECTING)
             return; // End recirculation
         
-        this.election_ack_timers.cancelFirstTimer();
-        
 	// Election based on ID
         this.coordinatorID = findMaxID(msg.IDs);
+        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " coordinator = " + coordinatorID);
 	
         if (this.coordinatorID == this.replicaID) {
-            this.epoch++; // Non dovrebbe incrementare al cambio di View?
+            //this.epoch++; // Non dovrebbe incrementare al cambio di View?
             this.seqNo = 0;
             scheduleNextHeartbeatReminder();
         }
@@ -159,11 +162,12 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onElectionAck(ElectionAck msg) {
+        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " ElectionAck from " + msg.from);
         this.election_ack_timers.cancelFirstTimer();
     }
     
     private void onElectionAckTimeout() {
-        System.out.println("Election Ack timeout");
+        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " ElectionAck timeout");
         
         // Create and propagate new View
         int crashed = getNextIDInRing();
@@ -180,22 +184,27 @@ public class ReplicaActor extends AbstractActor {
     private void createAndPropagateView(List<ActorRef> new_group) {
         this.state = State.VIEW_CHANGE;
         this.epoch++;
+        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " creating new View #" + epoch);
         
         View v = new View(this.epoch, new_group);
         addNewView(v);
         
         ViewChange msg = new ViewChange(v);
-        for (ActorRef a : new_group)
-           a.tell(msg, getSelf()); 
+        for (ActorRef a : new_group) {
+            QTOB.simulateNwkDelay();
+            a.tell(msg, getSelf()); 
+        }
     }
     
     private void addNewView(View v) {
-        this.views.add(v);
-        flushes_received.put(v.viewID, 0);
+        this.views.put(v.viewID, v);
+        if (!flushes_received.containsKey(v.viewID))
+            flushes_received.put(v.viewID, 0);
     }
     
     private void onViewChange(ViewChange msg) {
         this.state = State.VIEW_CHANGE; // Pause sending new multicasts
+        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " received ViewChange #" + msg.view.viewID);
         
         addNewView(msg.view);
         // TODO (?) Send all unstable messages
@@ -206,8 +215,10 @@ public class ReplicaActor extends AbstractActor {
         Flush msg = new Flush(v.viewID);
         
         for (ActorRef r : v.peers)
-            if (r != getSelf())
+            if (r != getSelf()) {
+                QTOB.simulateNwkDelay();
                 r.tell(msg, getSelf());   
+            }
     }
     
     private void onFlush(Flush msg) {
@@ -215,25 +226,30 @@ public class ReplicaActor extends AbstractActor {
         
         if (isFlushComplete(msg.id)) {
             installView(msg.id);
-            beginElection(); // TODO: always?
         }
     }
     
     private int incrementFlushAks(int id) {
-        // TODO: handle flushes for unknown (yet unseen) views
+        if (!flushes_received.containsKey(id))
+            flushes_received.put(id, 0);
+        
         int n_flushes = flushes_received.get(id) + 1;
         flushes_received.replace(id, n_flushes);
         return n_flushes;
     }
     
     private boolean isFlushComplete(int id) {
+        if (!views.containsKey(id)) return false;
         int n_peers = views.get(id).peers.size();
         int n_flushes = flushes_received.get(id);
         return n_flushes == n_peers - 1;
     }
     
     private void installView(int id) {
+        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " installing View #" + id);
         this.peers = this.views.get(id).peers;
+        this.epoch = id;
+        this.state = State.BROADCAST;
     }
     
     private void onReadRequest(ReadRequest req) {
@@ -241,9 +257,15 @@ public class ReplicaActor extends AbstractActor {
         req.client.tell(
             new ReadResponse(this.value), getSelf()
         );
+        
+        if (coordinatorID == null && state != State.ELECTING)
+            beginElection();
     }
     
     private void onWriteRequest(WriteRequest req) {
+        if (coordinatorID == null) {
+            beginElection();
+        }
         if (this.state == State.ELECTING) {
             // TODO: enqueue requests during elections
             return;

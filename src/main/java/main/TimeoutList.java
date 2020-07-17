@@ -9,13 +9,15 @@ import java.util.TimerTask;
  *
  * @author alex
  */
-public class TimeoutManager {
+public class TimeoutList {
     private final Runnable callback;
     private final List<Timer> timers;
+    private final int delay_ms;
     
-    public TimeoutManager(Runnable callback) {
+    public TimeoutList(Runnable callback, int delay_ms) {
         this.callback = callback;
         timers = new ArrayList<>();
+        this.delay_ms = delay_ms;
     }
     
     private void preCallback() {
@@ -23,7 +25,7 @@ public class TimeoutManager {
         this.callback.run();
     }
     
-    public void addTimer(int delay_ms) {
+    public void addTimer() {
         Timer t = new Timer();
         t.schedule(new TimerTask() {
             @Override
