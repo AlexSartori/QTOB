@@ -35,4 +35,8 @@ public class TimeoutMap<T> {
         Timer t = this.timers.remove(key);
         t.cancel();
     }
+    
+    public boolean containsKey(T key) {
+        return timers.containsKey(key);
+    }
 }

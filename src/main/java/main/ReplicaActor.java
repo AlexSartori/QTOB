@@ -30,10 +30,12 @@ public class ReplicaActor extends AbstractActor {
     // View & Epoch management
     private final Map<Integer, View> views;
     private final Map<Integer, Integer> flushes_received;
+    private final TimeoutMap<Integer> request_timers;
 
     private Integer coordinatorID;
     private int epoch, seqNo;
-    private List<ActorRef> peers;
+    private final Map<Integer, ActorRef> nodes_by_id;
+    private List<ActorRef> alive_peers;
     
     // Only used if replica is coordinator
     private final Map<UpdateID, Integer> updateAcks;
@@ -43,11 +45,13 @@ public class ReplicaActor extends AbstractActor {
     public ReplicaActor(int ID, int value) {
         this.state = State.VIEW_CHANGE;
         this.replicaID = ID;
-        this.peers = new ArrayList<>();
+        this.nodes_by_id = new HashMap<>();
+        this.alive_peers = new ArrayList<>();
         this.value = value;
         this.updateHistory = new HashMap<>(); // to be changed, maybe
         this.views = new HashMap<>();
         this.flushes_received = new HashMap<>();
+        this.request_timers = new TimeoutMap<>(this::onRequestTimeout, QTOB.NWK_TIMEOUT_MS);
         
         this.coordinatorID = null;
         this.epoch = -1;  // on the first election this will change to 0
@@ -76,7 +80,7 @@ public class ReplicaActor extends AbstractActor {
         
         int next = getNextIDInRing();
         QTOB.simulateNwkDelay();
-        this.peers.get(next).tell(msg, getSelf());
+        this.alive_peers.get(next).tell(msg, getSelf());
         this.election_ack_timers.addTimer();
     }
     
@@ -99,7 +103,7 @@ public class ReplicaActor extends AbstractActor {
             this.state = State.ELECTING;
         
         Boolean end_election = msg.IDs.contains(this.replicaID);
-        ActorRef next = this.peers.get(getNextIDInRing());
+        ActorRef next = this.alive_peers.get(getNextIDInRing());
         
         if (end_election) { // Change to coordinator message type
             next.tell(
@@ -137,7 +141,7 @@ public class ReplicaActor extends AbstractActor {
         this.state = State.BROADCAST;
         
         int next = getNextIDInRing();
-        this.peers.get(next).tell(
+        this.alive_peers.get(next).tell(
             new Coordinator(new ArrayList<>(msg.IDs)),
             getSelf()
         );
@@ -171,14 +175,14 @@ public class ReplicaActor extends AbstractActor {
         
         // Create and propagate new View
         int crashed = getNextIDInRing();
-        List<ActorRef> new_peers = new ArrayList<>(this.peers);
+        List<ActorRef> new_peers = new ArrayList<>(this.alive_peers);
         new_peers.remove(crashed);
         createAndPropagateView(new_peers);
     }
     
     private int getNextIDInRing() {
-        int idx = peers.indexOf(getSelf());
-        return (idx+1) % peers.size();
+        int idx = alive_peers.indexOf(getSelf());
+        return (idx+1) % alive_peers.size();
     }
     
     private void createAndPropagateView(List<ActorRef> new_group) {
@@ -205,6 +209,10 @@ public class ReplicaActor extends AbstractActor {
     private void onViewChange(ViewChange msg) {
         this.state = State.VIEW_CHANGE; // Pause sending new multicasts
         if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " received ViewChange #" + msg.view.viewID);
+        
+        for (int i = 0; i < msg.view.peers.size(); i++)
+            if (!this.nodes_by_id.containsKey(i))
+            this.nodes_by_id.put(i, msg.view.peers.get(i));
         
         addNewView(msg.view);
         // TODO (?) Send all unstable messages
@@ -247,7 +255,7 @@ public class ReplicaActor extends AbstractActor {
     
     private void installView(int id) {
         if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " installing View #" + id);
-        this.peers = this.views.get(id).peers;
+        this.alive_peers = this.views.get(id).peers;
         this.epoch = id;
         this.state = State.BROADCAST;
     }
@@ -280,10 +288,11 @@ public class ReplicaActor extends AbstractActor {
             propagateUpdate(req.new_value);
         } else {
             // Forward to coordinator
-            this.peers.get(this.coordinatorID).tell(  // ID may not correspond to index
+            this.nodes_by_id.get(this.coordinatorID).tell(
                 req,
                 getSelf()
             );
+            this.request_timers.addTimer(req.new_value);
         }
     }
     
@@ -293,12 +302,15 @@ public class ReplicaActor extends AbstractActor {
 
         this.updateAcks.put(u_id, 0);
 
-        for (ActorRef a : this.peers)
+        for (ActorRef a : this.alive_peers)
             if (a != getSelf())
                 a.tell(new UpdateMsg(u), getSelf());
     }
     
     private void onUpdateMsg(UpdateMsg msg) {
+        if (request_timers.containsKey(msg.u.value))
+            request_timers.cancelTimer(msg.u.value);
+        
         getSender().tell(
             new UpdateAck(msg.u),
             getSelf()
@@ -313,10 +325,10 @@ public class ReplicaActor extends AbstractActor {
         
         // Wait for Q acks and propagate writeok to everyone
         int curr_acks = incrementUpdateAcks(msg.u.id);
-        int Q = Math.floorDiv(peers.size(), 2) + 1;
+        int Q = Math.floorDiv(alive_peers.size(), 2) + 1;
         
         if (curr_acks == Q) {
-            for (ActorRef r : peers)
+            for (ActorRef r : alive_peers)
                 r.tell(
                     new WriteOk(msg.u),
                     getSelf()
@@ -348,10 +360,19 @@ public class ReplicaActor extends AbstractActor {
         if (this.coordinatorID == null || this.coordinatorID != this.replicaID)
             return;
         
-        for (ActorRef a : this.peers)
+        for (ActorRef a : this.alive_peers)
             a.tell(new Heartbeat(), getSelf());
         
         scheduleNextHeartbeatReminder();
+    }
+    
+    private void onRequestTimeout() {
+        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " update request timed out");
+        
+        // Create and propagate new View
+        List<ActorRef> new_peers = new ArrayList<>(this.alive_peers);
+        new_peers.remove(this.nodes_by_id.get(coordinatorID));
+        this.coordinatorID = null;
     }
     
     private void onHeartbeat(Heartbeat msg) {
@@ -359,10 +380,16 @@ public class ReplicaActor extends AbstractActor {
         // System.out.println("Replica " + replicaID + " received heartbeat");
     }
     
+    private void onInitializeGroup(InitializeGroup msg) {
+        for (int i = 0; i < msg.group.size(); i++)
+            this.nodes_by_id.put(i, msg.group.get(i));
+        createAndPropagateView(msg.group);
+    }
+    
     @Override
     public Receive createReceive() {
         return receiveBuilder()
-            .match(InitializeGroup.class, (InitializeGroup msg) -> createAndPropagateView(msg.group))
+            .match(InitializeGroup.class, this::onInitializeGroup)
             .match(ViewChange.class, this::onViewChange)
             .match(Flush.class, this::onFlush)
             .match(ReadRequest.class, this::onReadRequest)
