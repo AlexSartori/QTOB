@@ -30,7 +30,8 @@ public class ReplicaActor extends AbstractActor {
     // View & Epoch management
     private final Map<Integer, View> views;
     private final Map<Integer, Integer> flushes_received;
-    private final TimeoutMap<Integer> request_timers;
+    private final TimeoutMap<Integer> update_req_timers;
+    private final TimeoutMap<UpdateID> writeok_timers;
 
     private Integer coordinatorID;
     private int epoch, seqNo;
@@ -51,7 +52,9 @@ public class ReplicaActor extends AbstractActor {
         this.updateHistory = new HashMap<>(); // to be changed, maybe
         this.views = new HashMap<>();
         this.flushes_received = new HashMap<>();
-        this.request_timers = new TimeoutMap<>(this::onRequestTimeout, QTOB.NWK_TIMEOUT_MS);
+        this.update_req_timers = new TimeoutMap<>(this::onUpdateRequestTimeout, QTOB.NWK_TIMEOUT_MS);
+        this.writeok_timers = new TimeoutMap<>(this::onWriteOkTimeout, QTOB.NWK_TIMEOUT_MS);
+
         
         this.coordinatorID = null;
         this.epoch = -1;  // on the first election this will change to 0
@@ -292,7 +295,7 @@ public class ReplicaActor extends AbstractActor {
                 req,
                 getSelf()
             );
-            this.request_timers.addTimer(req.new_value);
+            this.update_req_timers.addTimer(req.new_value);
         }
     }
     
@@ -308,8 +311,10 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onUpdateMsg(UpdateMsg msg) {
-        if (request_timers.containsKey(msg.u.value))
-            request_timers.cancelTimer(msg.u.value);
+        if (update_req_timers.containsKey(msg.u.value)) {
+            update_req_timers.cancelTimer(msg.u.value);
+            writeok_timers.addTimer(msg.u.id);
+        }
         
         getSender().tell(
             new UpdateAck(msg.u),
@@ -343,6 +348,9 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onWriteOk(WriteOk msg) {
+        if (writeok_timers.containsKey(msg.u.id))
+            writeok_timers.cancelTimer(msg.u.id);
+            
         applyWrite(msg.u);
     }
     
@@ -366,13 +374,23 @@ public class ReplicaActor extends AbstractActor {
         scheduleNextHeartbeatReminder();
     }
     
-    private void onRequestTimeout() {
+    private void onUpdateRequestTimeout() {
         if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " update request timed out");
         
-        // Create and propagate new View
+        // Declare coordinator is dead
         List<ActorRef> new_peers = new ArrayList<>(this.alive_peers);
         new_peers.remove(this.nodes_by_id.get(coordinatorID));
         this.coordinatorID = null;
+        createAndPropagateView(new_peers);
+    }
+    
+    private void onWriteOkTimeout() {
+        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " wait for WriteOk timed out");
+        
+        List<ActorRef> new_peers = new ArrayList<>(this.alive_peers);
+        new_peers.remove(this.nodes_by_id.get(coordinatorID));
+        this.coordinatorID = null;
+        createAndPropagateView(new_peers);
     }
     
     private void onHeartbeat(Heartbeat msg) {
