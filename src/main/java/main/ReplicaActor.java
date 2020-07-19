@@ -23,9 +23,10 @@ public class ReplicaActor extends AbstractActor {
     };
     private State state;
     
-    private final int replicaID;
+    public final int replicaID;
     private int value;
     private final Map<UpdateID, Integer> updateHistory;
+    private final ElectionManager election_manager;
     
     // View & Epoch management
     private final Map<Integer, View> views;
@@ -33,22 +34,22 @@ public class ReplicaActor extends AbstractActor {
     private final TimeoutMap<Integer> update_req_timers;
     private final TimeoutMap<UpdateID> writeok_timers;
 
-    private Integer coordinatorID;
     private int epoch, seqNo;
     private final Map<Integer, ActorRef> nodes_by_id;
     private List<ActorRef> alive_peers;
     
     // Only used if replica is coordinator
     private final Map<UpdateID, Integer> updateAcks;
-    private final TimeoutList election_ack_timers;
     
     
     public ReplicaActor(int ID, int value) {
         this.state = State.VIEW_CHANGE;
         this.replicaID = ID;
+        this.value = value;
+        this.election_manager = new ElectionManager(this, this::onNewCoordinator);
+        
         this.nodes_by_id = new HashMap<>();
         this.alive_peers = new ArrayList<>();
-        this.value = value;
         this.updateHistory = new HashMap<>(); // to be changed, maybe
         this.views = new HashMap<>();
         this.flushes_received = new HashMap<>();
@@ -56,12 +57,10 @@ public class ReplicaActor extends AbstractActor {
         this.writeok_timers = new TimeoutMap<>(this::onWriteOkTimeout, QTOB.NWK_TIMEOUT_MS);
 
         
-        this.coordinatorID = null;
         this.epoch = -1;  // on the first election this will change to 0
         this.seqNo = 0;
         
         this.updateAcks = new HashMap<>();
-        this.election_ack_timers = new TimeoutList(this::onElectionAckTimeout, QTOB.NWK_TIMEOUT_MS);
     }
 
     static public Props props(int ID, int value) {
@@ -73,89 +72,34 @@ public class ReplicaActor extends AbstractActor {
         getContext().become(crashed());
     }
     
-    private void beginElection() {
-        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " beginElection()");
-        
-        // Ring-based Algorithm
-        this.state = State.ELECTING;
-        
-        Election msg = createElectionMsg();
-        
-        int next = getNextIDInRing();
-        QTOB.simulateNwkDelay();
-        this.alive_peers.get(next).tell(msg, getSelf());
-        this.election_ack_timers.addTimer();
+    public void onCrashedNode(ActorRef node) {
+        List<ActorRef> new_peers = new ArrayList<>(this.alive_peers);
+        new_peers.remove(node);
+        createAndPropagateView(new_peers);
     }
     
-    private Election createElectionMsg() {
-        ArrayList<Integer> ids = new ArrayList<>();
-        ids.add(replicaID);
-        return new Election(ids);
-    }
-    
-    private Election expandElectionMsg(Election msg) {
-        ArrayList<Integer> ids = new ArrayList<>(msg.IDs);
-        ids.add(replicaID);
-        return new Election(ids);
-    }
-    
-    private void onElection(Election msg) {
-        if (this.state == State.VIEW_CHANGE)
-            return; // Not ready, don't know the group yet
-        if (this.state != State.ELECTING)
-            this.state = State.ELECTING;
-        
-        Boolean end_election = msg.IDs.contains(this.replicaID);
-        ActorRef next = this.alive_peers.get(getNextIDInRing());
-        
-        if (end_election) { // Change to coordinator message type
-            next.tell(
-                new Coordinator(new ArrayList<>(msg.IDs)),
-                getSelf()
-            );
-        } else {
-            // Add my ID and recirculate
-            Election el_msg = expandElectionMsg(msg);
-            next.tell(el_msg, getSelf());
-            this.election_ack_timers.addTimer();
+    public void onNewCoordinator() {
+        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " coordinator => " + election_manager.coordinatorID);
 	
-        }
-        // Send back an ElectionAck to the ELECTION sender
-        getSender().tell(
-            new ElectionAck(this.replicaID),
-            getSelf()
-        );
-    }
-    
-    private void onCoordinator(Coordinator msg) {
-        if (this.state != State.ELECTING)
-            return; // End recirculation
-        
-	// Election based on ID
-        this.coordinatorID = findMaxID(msg.IDs);
-        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " coordinator = " + coordinatorID);
-	
-        if (this.coordinatorID == this.replicaID) {
-            //this.epoch++; // Non dovrebbe incrementare al cambio di View?
-            this.seqNo = 0;
+        if (election_manager.coordinatorID == replicaID) {
+            seqNo = 0;
             scheduleNextHeartbeatReminder();
-        }
-	
-        this.state = State.BROADCAST;
-        
-        int next = getNextIDInRing();
-        this.alive_peers.get(next).tell(
-            new Coordinator(new ArrayList<>(msg.IDs)),
-            getSelf()
-        );
+        }        
     }
     
-    private int findMaxID(List<Integer> ids) {
-        int max = -1;
-        for (int id : ids)
-            if (id > max)
-                max = id;
-        return max;
+    public int getNextIDInRing() {
+        int id = replicaID;
+        
+        do id = ++id % nodes_by_id.size();
+        while (!alive_peers.contains(nodes_by_id.get(id)));
+        
+        return id;
+    }
+    
+    public ActorRef getNextActorInRing() {
+        int idx = alive_peers.indexOf(getSelf());
+        idx = (idx+1) % alive_peers.size();
+        return this.alive_peers.get(idx);
     }
     
     private void scheduleNextHeartbeatReminder() {
@@ -168,27 +112,7 @@ public class ReplicaActor extends AbstractActor {
         );
     }
     
-    private void onElectionAck(ElectionAck msg) {
-        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " ElectionAck from " + msg.from);
-        this.election_ack_timers.cancelFirstTimer();
-    }
-    
-    private void onElectionAckTimeout() {
-        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " ElectionAck timeout");
-        
-        // Create and propagate new View
-        int crashed = getNextIDInRing();
-        List<ActorRef> new_peers = new ArrayList<>(this.alive_peers);
-        new_peers.remove(crashed);
-        createAndPropagateView(new_peers);
-    }
-    
-    private int getNextIDInRing() {
-        int idx = alive_peers.indexOf(getSelf());
-        return (idx+1) % alive_peers.size();
-    }
-    
-    private void createAndPropagateView(List<ActorRef> new_group) {
+    public void createAndPropagateView(List<ActorRef> new_group) {
         this.state = State.VIEW_CHANGE;
         this.epoch++;
         if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " creating new View #" + epoch);
@@ -269,15 +193,15 @@ public class ReplicaActor extends AbstractActor {
             new ReadResponse(this.value), getSelf()
         );
         
-        if (coordinatorID == null && state != State.ELECTING)
-            beginElection();
+        if (election_manager.coordinatorID == null && state != State.ELECTING)
+            election_manager.beginElection();
     }
     
     private void onWriteRequest(WriteRequest req) {
-        if (coordinatorID == null) {
-            beginElection();
+        if (election_manager.coordinatorID == null) {
+            election_manager.beginElection();
         }
-        if (this.state == State.ELECTING) {
+        if (election_manager.coordinatorID == null) {
             // TODO: enqueue requests during elections
             return;
         }
@@ -287,11 +211,11 @@ public class ReplicaActor extends AbstractActor {
             return;
         }
         
-        if (this.coordinatorID == this.replicaID) {
+        if (election_manager.coordinatorID == this.replicaID) {
             propagateUpdate(req.new_value);
         } else {
             // Forward to coordinator
-            this.nodes_by_id.get(this.coordinatorID).tell(
+            this.nodes_by_id.get(election_manager.coordinatorID).tell(
                 req,
                 getSelf()
             );
@@ -323,7 +247,7 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onUpdateAck(UpdateAck msg) {
-        if (this.coordinatorID != this.replicaID) {
+        if (election_manager.coordinatorID != this.replicaID) {
             System.err.println("!!! Received UpdateAck even if not coordinator");
             return;
         }
@@ -365,7 +289,7 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onHeartbeatReminder(HeartbeatReminder msg) {
-        if (this.coordinatorID == null || this.coordinatorID != this.replicaID)
+        if (election_manager.coordinatorID == null || election_manager.coordinatorID != this.replicaID)
             return;
         
         for (ActorRef a : this.alive_peers)
@@ -379,8 +303,8 @@ public class ReplicaActor extends AbstractActor {
         
         // Declare coordinator is dead
         List<ActorRef> new_peers = new ArrayList<>(this.alive_peers);
-        new_peers.remove(this.nodes_by_id.get(coordinatorID));
-        this.coordinatorID = null;
+        new_peers.remove(this.nodes_by_id.get(election_manager.coordinatorID));
+        election_manager.coordinatorID = null;
         createAndPropagateView(new_peers);
     }
     
@@ -388,8 +312,8 @@ public class ReplicaActor extends AbstractActor {
         if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " wait for WriteOk timed out");
         
         List<ActorRef> new_peers = new ArrayList<>(this.alive_peers);
-        new_peers.remove(this.nodes_by_id.get(coordinatorID));
-        this.coordinatorID = null;
+        new_peers.remove(this.nodes_by_id.get(election_manager.coordinatorID));
+        election_manager.coordinatorID = null;
         createAndPropagateView(new_peers);
     }
     
@@ -415,9 +339,9 @@ public class ReplicaActor extends AbstractActor {
             .match(UpdateMsg.class, this::onUpdateMsg)
             .match(UpdateAck.class, this::onUpdateAck)
             .match(WriteOk.class, this::onWriteOk)
-            .match(Election.class, this::onElection)
-            .match(ElectionAck.class, this::onElectionAck)
-            .match(Coordinator.class, this::onCoordinator)
+            .match(Election.class, election_manager::onElection)
+            .match(ElectionAck.class, election_manager::onElectionAck)
+            .match(Coordinator.class, election_manager::onCoordinator)
             .match(CrashMsg.class, this::onCrashMsg)
             .match(HeartbeatReminder.class, this::onHeartbeatReminder)
             .match(Heartbeat.class, this::onHeartbeat)
