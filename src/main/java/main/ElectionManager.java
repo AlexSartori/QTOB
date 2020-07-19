@@ -100,8 +100,8 @@ public class ElectionManager {
         
 	// Election based on ID
         coordinatorID = findMaxID(msg.IDs);
-        new_coord_callback.run();
         electing = false;
+        new_coord_callback.run();
         
         parent.getNextActorInRing().tell(
             new Messages.Coordinator(new ArrayList<>(msg.IDs)),

@@ -24,7 +24,7 @@ public class ReplicaActor extends AbstractActor {
     
     // View & Epoch management
     private final Map<Integer, View> views;
-    private final Map<Integer, Integer> flushes_received;
+    private final Map<Integer, HashMap<ActorRef, Boolean>> flushes_received;
     private final TimeoutMap<Integer> update_req_timers;
     private final TimeoutMap<UpdateID> writeok_timers;
 
@@ -130,16 +130,16 @@ public class ReplicaActor extends AbstractActor {
     private void addNewView(View v) {
         this.views.put(v.viewID, v);
         if (!flushes_received.containsKey(v.viewID))
-            flushes_received.put(v.viewID, 0);
+            flushes_received.put(v.viewID, new HashMap<>());
     }
     
     private void onViewChange(ViewChange msg) {
         this.view_change = true; // Pause sending new multicasts
         if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " received ViewChange #" + msg.view.viewID);
         
-        for (int i = 0; i < msg.view.peers.size(); i++)
-            if (!this.nodes_by_id.containsKey(i))
-            this.nodes_by_id.put(i, msg.view.peers.get(i));
+        if (nodes_by_id.isEmpty())
+            for (int i = 0; i < msg.view.peers.size(); i++)
+                nodes_by_id.put(i, msg.view.peers.get(i));
         
         addNewView(msg.view);
         // TODO (?) Send all unstable messages
@@ -157,26 +157,25 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onFlush(Flush msg) {
-        incrementFlushAks(msg.id);
+        addFlushAck(msg.id, getSender());
         
         if (isFlushComplete(msg.id))
             installView(msg.id);
     }
     
-    private int incrementFlushAks(int id) {
+    private void addFlushAck(int id, ActorRef sender) {
         if (!flushes_received.containsKey(id))
-            flushes_received.put(id, 0);
+            flushes_received.put(id, new HashMap<>());
         
-        int n_flushes = flushes_received.get(id) + 1;
-        flushes_received.replace(id, n_flushes);
-        return n_flushes;
+        HashMap<ActorRef, Boolean> this_view = flushes_received.get(id);
+        this_view.put(sender, true);
     }
     
     private boolean isFlushComplete(int id) {
         if (!views.containsKey(id)) return false;
         int n_peers = views.get(id).peers.size();
-        int n_flushes = flushes_received.get(id);
-        return n_flushes == n_peers - 1;
+        int n_flushes = flushes_received.get(id).size();
+        return n_flushes == (n_peers - 1);
     }
     
     private void installView(int id) {
@@ -327,23 +326,27 @@ public class ReplicaActor extends AbstractActor {
             .match(InitializeGroup.class, this::onInitializeGroup)
             .match(ViewChange.class, this::onViewChange)
             .match(Flush.class, this::onFlush)
+            .match(Election.class, election_manager::onElection)
+            .match(ElectionAck.class, election_manager::onElectionAck)
+            .match(Coordinator.class, election_manager::onCoordinator)
             .match(ReadRequest.class, this::onReadRequest)
             .match(WriteRequest.class, this::onWriteRequest)
             .match(UpdateMsg.class, this::onUpdateMsg)
             .match(UpdateAck.class, this::onUpdateAck)
             .match(WriteOk.class, this::onWriteOk)
-            .match(Election.class, election_manager::onElection)
-            .match(ElectionAck.class, election_manager::onElectionAck)
-            .match(Coordinator.class, election_manager::onCoordinator)
             .match(CrashMsg.class, this::onCrashMsg)
             .match(HeartbeatReminder.class, this::onHeartbeatReminder)
             .match(Heartbeat.class, this::onHeartbeat)
+            .matchAny(msg -> {System.out.println("Replica " + replicaID + " unhandled " + msg.getClass());})
             .build();
     }
     
     final AbstractActor.Receive crashed() {
         return receiveBuilder()
-            .matchAny(msg -> {System.out.println("Replica " + replicaID + " crashed but " + msg.toString());})
+            .matchAny(msg -> {
+                if (QTOB.VERBOSE)
+                    System.out.println("Replica " + replicaID + " crashed but " + msg.getClass());
+            })
             .build();
     }
 }

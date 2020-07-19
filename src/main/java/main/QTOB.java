@@ -73,13 +73,13 @@ public class QTOB {
     }
 
     private static void scheduleCrashes(List<ActorRef> replicas) {
-        int how_many = RNG.nextInt(Math.floorDiv(N_REPLICAS, 2));
+        int how_many = 1; // RNG.nextInt(Math.floorDiv(N_REPLICAS, 2));
         System.out.println(how_many + " replica(s) will crash.");
         
         for (int i = 0; i < how_many; i++) {
             akka.scheduler().scheduleOnce(
                 Duration.create(2 + RNG.nextInt(5), TimeUnit.SECONDS), // When
-                replicas.get(i),     // To whom
+                replicas.get(3),     // To whom
                 new CrashMsg(),      // Msg to send
                 akka.dispatcher(),   // System dispatcher
                 ActorRef.noSender()  // Source of the msg
