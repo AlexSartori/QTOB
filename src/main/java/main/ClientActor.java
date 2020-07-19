@@ -59,16 +59,17 @@ public class ClientActor extends AbstractActor {
     }
     
     private void sendReadReq() {
+        System.out.println("Client " + clientID + " read req to " + target_replica_id);
         this.replicas.get(this.target_replica_id).tell(
             new ReadRequest(getSelf()),
             getSelf()
         );
         
         read_req_timers.addTimer();
-        System.out.println("Client " + this.clientID + " read req to " + target_replica_id);
     }
     
     private void sendWriteReq() {
+        if (QTOB.VERBOSE) System.out.println("Client " + clientID + " write req to " + target_replica_id);
         this.replicas.get(this.target_replica_id).tell(
             new WriteRequest(getSelf(), this.RNG.nextInt(1000)),
             getSelf()

@@ -13,15 +13,19 @@ public class ElectionManager {
     public Integer coordinatorID;
     private final TimeoutList election_ack_timers;
     Runnable new_coord_callback;
+    boolean electing;
     
     public ElectionManager(ReplicaActor parent, Runnable new_coord_callback) {
         this.parent = parent;
         this.new_coord_callback = new_coord_callback;
         this.coordinatorID = null;
         this.election_ack_timers = new TimeoutList(this::onElectionAckTimeout, QTOB.NWK_TIMEOUT_MS);
+        this.electing = false;
     }
     
     public void beginElection() {
+        if (electing) return;
+        electing = true;
         if (QTOB.VERBOSE) System.out.println("Replica " + parent.replicaID + " beginElection()");
         
         // Ring-based Algorithm
@@ -54,6 +58,9 @@ public class ElectionManager {
     }
     
     public void onElection(Messages.Election msg) {
+        electing = true;
+        coordinatorID = null;
+        
         Boolean end_election = msg.IDs.contains(parent.replicaID);
         ActorRef next = parent.getNextActorInRing();
         
@@ -83,6 +90,7 @@ public class ElectionManager {
     
     private void onElectionAckTimeout() {
         if (QTOB.VERBOSE) System.out.println("Replica " + parent.replicaID + " ElectionAck timeout");
+        electing = false;
         parent.onCrashedNode(parent.getNextActorInRing());
     }
         
@@ -93,6 +101,7 @@ public class ElectionManager {
 	// Election based on ID
         coordinatorID = findMaxID(msg.IDs);
         new_coord_callback.run();
+        electing = false;
         
         parent.getNextActorInRing().tell(
             new Messages.Coordinator(new ArrayList<>(msg.IDs)),

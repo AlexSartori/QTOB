@@ -15,13 +15,7 @@ import scala.concurrent.duration.Duration;
  * @author alex
  */
 public class ReplicaActor extends AbstractActor {
-    private enum State {
-        VIEW_CHANGE,
-        ELECTING,
-        BROADCAST,
-        CRASHED
-    };
-    private State state;
+    private boolean view_change;
     
     public final int replicaID;
     private int value;
@@ -43,7 +37,7 @@ public class ReplicaActor extends AbstractActor {
     
     
     public ReplicaActor(int ID, int value) {
-        this.state = State.VIEW_CHANGE;
+        this.view_change = false;
         this.replicaID = ID;
         this.value = value;
         this.election_manager = new ElectionManager(this, this::onNewCoordinator);
@@ -68,7 +62,6 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void setStateToCrashed() {
-        this.state = State.CRASHED;
         getContext().become(crashed());
     }
     
@@ -97,6 +90,8 @@ public class ReplicaActor extends AbstractActor {
     }
     
     public ActorRef getNextActorInRing() {
+        if (alive_peers.isEmpty())
+            return getSelf();
         int idx = alive_peers.indexOf(getSelf());
         idx = (idx+1) % alive_peers.size();
         return this.alive_peers.get(idx);
@@ -113,17 +108,22 @@ public class ReplicaActor extends AbstractActor {
     }
     
     public void createAndPropagateView(List<ActorRef> new_group) {
-        this.state = State.VIEW_CHANGE;
+        if(view_change) return;
+        this.view_change = true;
         this.epoch++;
         if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " creating new View #" + epoch);
-        
         View v = new View(this.epoch, new_group);
-        addNewView(v);
-        
         ViewChange msg = new ViewChange(v);
+        
+        addNewView(v);
+        // TODO (?) Send all unstable messages
+        flushViewToAll(msg.view);
+        
         for (ActorRef a : new_group) {
-            QTOB.simulateNwkDelay();
-            a.tell(msg, getSelf()); 
+            if (a != getSelf()) {
+                QTOB.simulateNwkDelay();
+                a.tell(msg, getSelf()); 
+            }
         }
     }
     
@@ -134,7 +134,7 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onViewChange(ViewChange msg) {
-        this.state = State.VIEW_CHANGE; // Pause sending new multicasts
+        this.view_change = true; // Pause sending new multicasts
         if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " received ViewChange #" + msg.view.viewID);
         
         for (int i = 0; i < msg.view.peers.size(); i++)
@@ -159,9 +159,8 @@ public class ReplicaActor extends AbstractActor {
     private void onFlush(Flush msg) {
         incrementFlushAks(msg.id);
         
-        if (isFlushComplete(msg.id)) {
+        if (isFlushComplete(msg.id))
             installView(msg.id);
-        }
     }
     
     private int incrementFlushAks(int id) {
@@ -184,7 +183,10 @@ public class ReplicaActor extends AbstractActor {
         if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " installing View #" + id);
         this.alive_peers = this.views.get(id).peers;
         this.epoch = id;
-        this.state = State.BROADCAST;
+        this.view_change = false;
+        
+        if (election_manager.coordinatorID == null)
+            election_manager.beginElection();
     }
     
     private void onReadRequest(ReadRequest req) {
@@ -192,21 +194,15 @@ public class ReplicaActor extends AbstractActor {
         req.client.tell(
             new ReadResponse(this.value), getSelf()
         );
-        
-        if (election_manager.coordinatorID == null && state != State.ELECTING)
-            election_manager.beginElection();
     }
     
     private void onWriteRequest(WriteRequest req) {
-        if (election_manager.coordinatorID == null) {
-            election_manager.beginElection();
-        }
         if (election_manager.coordinatorID == null) {
             // TODO: enqueue requests during elections
             return;
         }
         
-        if (this.state == State.VIEW_CHANGE) {
+        if (this.view_change) {
             // TODO: enqueue requests during view changes
             return;
         }
@@ -293,7 +289,8 @@ public class ReplicaActor extends AbstractActor {
             return;
         
         for (ActorRef a : this.alive_peers)
-            a.tell(new Heartbeat(), getSelf());
+            if (a != getSelf())
+                a.tell(new Heartbeat(), getSelf());
         
         scheduleNextHeartbeatReminder();
     }
@@ -310,11 +307,7 @@ public class ReplicaActor extends AbstractActor {
     
     private void onWriteOkTimeout() {
         if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " wait for WriteOk timed out");
-        
-        List<ActorRef> new_peers = new ArrayList<>(this.alive_peers);
-        new_peers.remove(this.nodes_by_id.get(election_manager.coordinatorID));
-        election_manager.coordinatorID = null;
-        createAndPropagateView(new_peers);
+        onCrashedNode(nodes_by_id.get(election_manager.coordinatorID));
     }
     
     private void onHeartbeat(Heartbeat msg) {
@@ -350,7 +343,7 @@ public class ReplicaActor extends AbstractActor {
     
     final AbstractActor.Receive crashed() {
         return receiveBuilder()
-            .matchAny(msg -> {})
+            .matchAny(msg -> {System.out.println("Replica " + replicaID + " crashed but " + msg.toString());})
             .build();
     }
 }
