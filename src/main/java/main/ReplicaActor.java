@@ -31,6 +31,8 @@ public class ReplicaActor extends AbstractActor {
     private int epoch, seqNo;
     private final Map<Integer, ActorRef> nodes_by_id;
     private List<ActorRef> alive_peers;
+    private final TimeoutList heartbeat_timer;
+    private final TimeoutMap<ActorRef> heartbeat_ack_timers;
     
     // Only used if replica is coordinator
     private final Map<UpdateID, Integer> updateAcks;
@@ -44,6 +46,8 @@ public class ReplicaActor extends AbstractActor {
         
         this.nodes_by_id = new HashMap<>();
         this.alive_peers = new ArrayList<>();
+        this.heartbeat_timer = new TimeoutList(this::onHeartbeatTimeout, QTOB.NWK_TIMEOUT_MS);
+        this.heartbeat_ack_timers = new TimeoutMap<>(this::onHeartbeatAckTimeout, QTOB.NWK_TIMEOUT_MS);
         this.updateHistory = new HashMap<>(); // to be changed, maybe
         this.views = new HashMap<>();
         this.flushes_received = new HashMap<>();
@@ -63,6 +67,10 @@ public class ReplicaActor extends AbstractActor {
     
     private void setStateToCrashed() {
         getContext().become(crashed());
+        heartbeat_timer.cancelAll();
+        heartbeat_ack_timers.cancelAll();
+        update_req_timers.cancelAll();
+        writeok_timers.cancelAll();
     }
     
     public void onCrashedNode(ActorRef node) {
@@ -77,7 +85,7 @@ public class ReplicaActor extends AbstractActor {
         if (election_manager.coordinatorID == replicaID) {
             seqNo = 0;
             scheduleNextHeartbeatReminder();
-        }        
+        }
     }
     
     public int getNextIDInRing() {
@@ -184,7 +192,7 @@ public class ReplicaActor extends AbstractActor {
         this.epoch = id;
         this.view_change = false;
         
-        if (election_manager.coordinatorID == null)
+        if (!election_manager.electing)
             election_manager.beginElection();
     }
     
@@ -277,6 +285,11 @@ public class ReplicaActor extends AbstractActor {
         this.updateHistory.put(u.id, u.value);
         this.value = u.value;
     }
+    
+    private void onWriteOkTimeout(UpdateID node) {
+        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " wait for WriteOk timed out");
+        onCrashedNode(nodes_by_id.get(election_manager.coordinatorID));
+    }
 
     private void onCrashMsg(CrashMsg msg) {
         System.out.println("Replica " + replicaID + " setting state to CRASHED");
@@ -284,34 +297,43 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onHeartbeatReminder(HeartbeatReminder msg) {
-        if (election_manager.coordinatorID == null || election_manager.coordinatorID != this.replicaID)
+        if (election_manager.electing || election_manager.coordinatorID != this.replicaID)
             return;
         
         for (ActorRef a : this.alive_peers)
-            if (a != getSelf())
+            if (a != getSelf()) {
                 a.tell(new Heartbeat(), getSelf());
+                heartbeat_ack_timers.addTimer(a);
+            }
         
         scheduleNextHeartbeatReminder();
     }
     
-    private void onUpdateRequestTimeout() {
+    private void onUpdateRequestTimeout(Integer node) {
         if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " update request timed out");
-        
-        // Declare coordinator is dead
-        List<ActorRef> new_peers = new ArrayList<>(this.alive_peers);
-        new_peers.remove(this.nodes_by_id.get(election_manager.coordinatorID));
-        election_manager.coordinatorID = null;
-        createAndPropagateView(new_peers);
-    }
-    
-    private void onWriteOkTimeout() {
-        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " wait for WriteOk timed out");
-        onCrashedNode(nodes_by_id.get(election_manager.coordinatorID));
+        onCrashedNode(nodes_by_id.get(node));
     }
     
     private void onHeartbeat(Heartbeat msg) {
-        // TODO: cancel coordinator crash timeout (to be implemented)
-        // System.out.println("Replica " + replicaID + " received heartbeat");
+        try { heartbeat_timer.cancelFirstTimer(); }
+        catch (Exception e) { } // First heartbeat
+        heartbeat_timer.addTimer();
+        
+        getSender().tell(new HeartbeatAck(), getSelf());
+    }
+    
+    private void onHeartbeatTimeout() {
+        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " Heartbeat timeout");
+        onCrashedNode(nodes_by_id.get(election_manager.coordinatorID));
+    }
+    
+    private void onHeartbeatAck(HeartbeatAck msg) {
+        heartbeat_ack_timers.cancelTimer(getSender());
+    }
+    
+    private void onHeartbeatAckTimeout(ActorRef node) {
+        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " HeartbeatAck timeout");
+        onCrashedNode(node);
     }
     
     private void onInitializeGroup(InitializeGroup msg) {
@@ -337,6 +359,7 @@ public class ReplicaActor extends AbstractActor {
             .match(CrashMsg.class, this::onCrashMsg)
             .match(HeartbeatReminder.class, this::onHeartbeatReminder)
             .match(Heartbeat.class, this::onHeartbeat)
+            .match(HeartbeatAck.class, this::onHeartbeatAck)
             .matchAny(msg -> {System.out.println("Replica " + replicaID + " unhandled " + msg.getClass());})
             .build();
     }

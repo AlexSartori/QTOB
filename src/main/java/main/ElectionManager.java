@@ -13,7 +13,7 @@ public class ElectionManager {
     public Integer coordinatorID;
     private final TimeoutList election_ack_timers;
     Runnable new_coord_callback;
-    boolean electing;
+    public boolean electing;
     
     public ElectionManager(ReplicaActor parent, Runnable new_coord_callback) {
         this.parent = parent;

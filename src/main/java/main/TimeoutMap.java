@@ -4,17 +4,18 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.function.Consumer;
 
 /**
  *
  * @author alex
  */
 public class TimeoutMap<T> {
-    private final Runnable callback;
+    private final Consumer<T> callback;
     private final int delay_ms;
     private final Map<T, Timer> timers;
     
-    public TimeoutMap(Runnable callback, int delay_ms) {
+    public TimeoutMap(Consumer<T> callback, int delay_ms) {
         this.callback = callback;
         this.delay_ms = delay_ms;
         this.timers = new HashMap<>();
@@ -25,7 +26,7 @@ public class TimeoutMap<T> {
         t.schedule(new TimerTask() {
             @Override
             public void run() {
-                callback.run();
+                callback.accept(key);
             }
         }, this.delay_ms);
         this.timers.put(key, t);
@@ -38,5 +39,10 @@ public class TimeoutMap<T> {
     
     public boolean containsKey(T key) {
         return timers.containsKey(key);
+    }
+    
+    public void cancelAll() {
+        for (Timer t : timers.values())
+            t.cancel();
     }
 }

@@ -40,4 +40,9 @@ public class TimeoutList {
         this.timers.get(0).cancel();
         this.timers.remove(0);
     }
+    
+    public void cancelAll() {
+        while (!this.timers.isEmpty())
+            cancelFirstTimer();
+    }
 }
