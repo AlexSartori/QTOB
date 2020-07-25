@@ -95,7 +95,6 @@ public class Messages {
     public static class CrashMsg implements Serializable { }
     
     public static class Heartbeat implements Serializable { }
-    public static class HeartbeatAck implements Serializable { }
     
     public static class HeartbeatReminder implements Serializable { }
 }

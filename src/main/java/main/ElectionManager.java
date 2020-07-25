@@ -84,7 +84,7 @@ public class ElectionManager {
     }
     
     public void onElectionAck(Messages.ElectionAck msg) {
-        if (QTOB.VERBOSE) System.out.println("Replica " + parent.replicaID + " ElectionAck from " + msg.from);
+        // if (QTOB.VERBOSE) System.out.println("Replica " + parent.replicaID + " ElectionAck from " + msg.from);
         this.election_ack_timers.cancelFirstTimer();
     }
     
