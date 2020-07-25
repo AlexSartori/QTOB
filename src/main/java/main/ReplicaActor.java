@@ -129,11 +129,14 @@ public class ReplicaActor extends AbstractActor {
         flushViewToAll(v);
         
         for (ActorRef a : new_group) {
-            if (a != getSelf()) {
-                QTOB.simulateNwkDelay();
-                a.tell(new ViewChange(v), getSelf()); 
-            }
+            if (a != getSelf())
+                sendWithNwkDelay(a, new ViewChange(v));
         }
+    }
+    
+    private void sendWithNwkDelay(ActorRef to, Object msg) {
+        QTOB.simulateNwkDelay();
+        to.tell(msg, getSelf());
     }
     
     private void addNewView(View v) {
@@ -160,10 +163,8 @@ public class ReplicaActor extends AbstractActor {
     
     private void flushViewToAll(View v) {
         for (ActorRef r : v.peers)
-            if (r != getSelf()) {
-                QTOB.simulateNwkDelay();
-                r.tell(new Flush(v.viewID), getSelf());   
-            }
+            if (r != getSelf())
+                sendWithNwkDelay(r, new Flush(v.viewID));   
     }
     
     private void onFlush(Flush msg) {
@@ -204,9 +205,7 @@ public class ReplicaActor extends AbstractActor {
     
     private void onReadRequest(ReadRequest req) {
         // System.out.println("Replica " + replicaID + " read request");
-        req.client.tell(
-            new ReadResponse(this.value), getSelf()
-        );
+        sendWithNwkDelay(req.client, new ReadResponse(this.value));
         
         if (election_manager.coordinatorID == null)
             election_manager.beginElection();
@@ -228,9 +227,9 @@ public class ReplicaActor extends AbstractActor {
             propagateUpdate(req.new_value);
         } else {
             // Forward to coordinator
-            this.nodes_by_id.get(election_manager.coordinatorID).tell(
-                req,
-                getSelf()
+            sendWithNwkDelay(
+                nodes_by_id.get(election_manager.coordinatorID),
+                req
             );
             this.update_req_timers.addTimer(req.new_value);
         }
@@ -245,7 +244,7 @@ public class ReplicaActor extends AbstractActor {
 
         for (ActorRef a : this.alive_peers)
             if (a != getSelf())
-                a.tell(new UpdateMsg(u), getSelf());
+                sendWithNwkDelay(a, new UpdateMsg(u));
     }
     
     private void onUpdateMsg(UpdateMsg msg) {
@@ -254,10 +253,7 @@ public class ReplicaActor extends AbstractActor {
             writeok_timers.addTimer(msg.u.id);
         }
         
-        getSender().tell(
-            new UpdateAck(msg.u),
-            getSelf()
-        );
+        sendWithNwkDelay(getSender(), new UpdateAck(msg.u));
     }
     
     private void onUpdateAck(UpdateAck msg) {
@@ -272,10 +268,7 @@ public class ReplicaActor extends AbstractActor {
         
         if (curr_acks == Q) {
             for (ActorRef r : alive_peers)
-                r.tell(
-                    new WriteOk(msg.u),
-                    getSelf()
-                );
+                sendWithNwkDelay(r, new WriteOk(msg.u));
         }
     }
     
@@ -311,14 +304,14 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onHeartbeatReminder(HeartbeatReminder msg) {
-        if (election_manager.electing || election_manager.coordinatorID != this.replicaID)
+        if (election_manager.electing || election_manager.coordinatorID == null || election_manager.coordinatorID != this.replicaID)
             return;
         
         for (ActorRef a : this.alive_peers)
             if (a != getSelf()) {
                 // if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " sending HB to " + a.path());
                 QTOB.simulateNwkDelay();
-                a.tell(new Heartbeat(), getSelf());
+                sendWithNwkDelay(a, new Heartbeat());
                 heartbeat_ack_timers.addTimer(a);
             }
         
@@ -336,7 +329,7 @@ public class ReplicaActor extends AbstractActor {
         catch (Exception e) { } // First heartbeat
         heartbeat_timer.addTimer();
         
-        getSender().tell(new HeartbeatAck(), getSelf());
+        sendWithNwkDelay(getSender(), new HeartbeatAck());
     }
     
     private void onHeartbeatTimeout() {
