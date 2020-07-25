@@ -87,7 +87,7 @@ public class ClientActor extends AbstractActor {
     
     private void onReadResponse(ReadResponse res) {
         read_req_timers.cancelFirstTimer();
-        System.out.println("Client " + this.clientID + " read done: " + res.value);
+        System.out.println("Client " + this.clientID + " read done " + res.value);
     }
     
     private void onInitializeGroup(InitializeGroup msg) {

@@ -16,7 +16,7 @@ import scala.concurrent.duration.Duration;
  * @author alex
  */
 public class QTOB {
-    final static boolean VERBOSE = true;
+    final static boolean VERBOSE = false;
     final static int N_CLIENTS = 4;
     final static int N_REPLICAS = 6;
     final static int MAX_NWK_DELAY_MS = 100;

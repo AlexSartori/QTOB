@@ -203,7 +203,7 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onReadRequest(ReadRequest req) {
-        System.out.println("Replica " + replicaID + " read request");
+        // System.out.println("Replica " + replicaID + " read request");
         req.client.tell(
             new ReadResponse(this.value), getSelf()
         );
@@ -290,7 +290,7 @@ public class ReplicaActor extends AbstractActor {
             writeok_timers.cancelTimer(msg.u.id);
         
         applyWrite(msg.u);
-        System.out.println("Replica <" + replicaID + "> update <" + epoch + ">:<" + seqNo +"> <" + this.value + ">");    
+        System.out.println("Replica " + replicaID + " update " + epoch + ":" + seqNo +" " + this.value);    
     }
     
     private void applyWrite(Update u) {
