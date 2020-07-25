@@ -46,7 +46,7 @@ public class ReplicaActor extends AbstractActor {
         
         this.nodes_by_id = new HashMap<>();
         this.alive_peers = new ArrayList<>();
-        this.heartbeat_timer = new TimeoutList(this::onHeartbeatTimeout, QTOB.NWK_TIMEOUT_MS);
+        this.heartbeat_timer = new TimeoutList(this::onHeartbeatTimeout, QTOB.HEARTBEAT_TIMEOUT_MS);
         this.heartbeat_ack_timers = new TimeoutMap<>(this::onHeartbeatAckTimeout, QTOB.NWK_TIMEOUT_MS);
         this.updateHistory = new HashMap<>(); // to be changed, maybe
         this.views = new HashMap<>();
@@ -87,7 +87,7 @@ public class ReplicaActor extends AbstractActor {
 	
         if (election_manager.coordinatorID == replicaID) {
             seqNo = 0;
-            //scheduleNextHeartbeatReminder();
+            scheduleNextHeartbeatReminder();
         }
     }
     
@@ -318,6 +318,7 @@ public class ReplicaActor extends AbstractActor {
         for (ActorRef a : this.alive_peers)
             if (a != getSelf()) {
                 QTOB.simulateNwkDelay();
+                if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " sending HB to " + a.path());
                 a.tell(new Heartbeat(), getSelf());
                 heartbeat_ack_timers.addTimer(a);
             }
@@ -331,6 +332,7 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onHeartbeat(Heartbeat msg) {
+        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " HB received");
         try { heartbeat_timer.cancelFirstTimer(); }
         catch (Exception e) { } // First heartbeat
         heartbeat_timer.addTimer();

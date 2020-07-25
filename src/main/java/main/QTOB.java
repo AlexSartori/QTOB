@@ -22,6 +22,7 @@ public class QTOB {
     final static int MAX_NWK_DELAY_MS = 100;
     final static int NWK_TIMEOUT_MS = MAX_NWK_DELAY_MS*2 + 200;
     final static int HEARTBEAT_DELAY_MS = 700;
+    final static int HEARTBEAT_TIMEOUT_MS = HEARTBEAT_DELAY_MS + MAX_NWK_DELAY_MS + 200;
     final static Random RNG = new Random();
     static ActorSystem akka;
     
