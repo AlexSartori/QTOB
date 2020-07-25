@@ -67,7 +67,8 @@ public class QTOB {
     private static void initializeActors(List<ActorRef> replicas, List<ActorRef> clients) {
         InitializeGroup msg = new InitializeGroup(replicas);
         
-        replicas.get(0).tell(msg, ActorRef.noSender());
+        for (ActorRef r : replicas)
+            r.tell(msg, ActorRef.noSender());
         
         for (ActorRef r : clients)
             r.tell(msg, ActorRef.noSender());

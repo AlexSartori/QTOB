@@ -15,22 +15,17 @@ import scala.concurrent.duration.Duration;
  * @author alex
  */
 public class ReplicaActor extends AbstractActor {
-    private boolean view_change;
-    
     public final int replicaID;
     private int value;
     private final Map<UpdateID, Integer> updateHistory;
     private final ElectionManager election_manager;
     
-    // View & Epoch management
-    private final Map<Integer, View> views;
-    private final Map<Integer, HashMap<ActorRef, Boolean>> flushes_received;
     private final TimeoutMap<Integer> update_req_timers;
     private final TimeoutMap<UpdateID> writeok_timers;
 
     private int epoch, seqNo;
     private final Map<Integer, ActorRef> nodes_by_id;
-    private List<ActorRef> alive_peers;
+    private final List<Integer> crashed_nodes;
     private final TimeoutList heartbeat_timer;
     private final TimeoutMap<ActorRef> heartbeat_ack_timers;
     
@@ -39,18 +34,15 @@ public class ReplicaActor extends AbstractActor {
     
     
     public ReplicaActor(int ID, int value) {
-        this.view_change = false;
         this.replicaID = ID;
         this.value = value;
         this.election_manager = new ElectionManager(this, this::onNewCoordinator);
         
         this.nodes_by_id = new HashMap<>();
-        this.alive_peers = new ArrayList<>();
+        this.crashed_nodes = new ArrayList<>();
         this.heartbeat_timer = new TimeoutList(this::onHeartbeatTimeout, QTOB.HEARTBEAT_TIMEOUT_MS);
         this.heartbeat_ack_timers = new TimeoutMap<>(this::onHeartbeatAckTimeout, QTOB.NWK_TIMEOUT_MS);
         this.updateHistory = new HashMap<>(); // to be changed, maybe
-        this.views = new HashMap<>();
-        this.flushes_received = new HashMap<>();
         this.update_req_timers = new TimeoutMap<>(this::onUpdateRequestTimeout, QTOB.NWK_TIMEOUT_MS);
         this.writeok_timers = new TimeoutMap<>(this::onWriteOkTimeout, QTOB.NWK_TIMEOUT_MS);
 
@@ -72,18 +64,19 @@ public class ReplicaActor extends AbstractActor {
         writeok_timers.cancelAll();
     }
     
-    public void onCrashedNode(ActorRef node) {
+    /* public void onCrashedNode(ActorRef node) {
         if (nodes_by_id.get(election_manager.coordinatorID) == node)
             election_manager.coordinatorID = null;
         
         List<ActorRef> new_peers = new ArrayList<>(this.alive_peers);
         new_peers.remove(node);
-        createAndPropagateView(new_peers);
-    }
+        // createAndPropagateView(new_peers);
+    } */
     
     public void onNewCoordinator() {
         if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " coordinator => " + election_manager.coordinatorID);
 	
+        epoch++;
         if (election_manager.coordinatorID == replicaID) {
             seqNo = 0;
             scheduleNextHeartbeatReminder();
@@ -94,17 +87,13 @@ public class ReplicaActor extends AbstractActor {
         int id = replicaID;
         
         do id = ++id % nodes_by_id.size();
-        while (!alive_peers.contains(nodes_by_id.get(id)));
+        while (crashed_nodes.contains(id));
         
         return id;
     }
     
     public ActorRef getNextActorInRing() {
-        if (alive_peers.isEmpty())
-            return getSelf();
-        int idx = alive_peers.indexOf(getSelf());
-        idx = (idx+1) % alive_peers.size();
-        return this.alive_peers.get(idx);
+        return nodes_by_id.get(getNextIDInRing());
     }
     
     private void scheduleNextHeartbeatReminder() {
@@ -117,90 +106,9 @@ public class ReplicaActor extends AbstractActor {
         );
     }
     
-    public void createAndPropagateView(List<ActorRef> new_group) {
-        if(view_change) return;
-        this.view_change = true;
-        this.epoch++;
-        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " creating new View #" + epoch);
-        
-        View v = new View(this.epoch, new_group);
-        addNewView(v);
-        // TODO (?) Send all unstable messages
-        flushViewToAll(v);
-        
-        for (ActorRef a : new_group) {
-            if (a != getSelf())
-                sendWithNwkDelay(a, new ViewChange(v));
-        }
-    }
-    
     private void sendWithNwkDelay(ActorRef to, Object msg) {
         QTOB.simulateNwkDelay();
         to.tell(msg, getSelf());
-    }
-    
-    private void addNewView(View v) {
-        this.views.put(v.viewID, v);
-        if (!flushes_received.containsKey(v.viewID))
-            flushes_received.put(v.viewID, new HashMap<>());
-    }
-    
-    private void onViewChange(ViewChange msg) {
-        if (this.views.containsKey(msg.view.viewID))
-            return;
-        
-        this.view_change = true; // Pause sending new multicasts
-        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " received ViewChange #" + msg.view.viewID);
-        
-        if (nodes_by_id.isEmpty())
-            for (int i = 0; i < msg.view.peers.size(); i++)
-                nodes_by_id.put(i, msg.view.peers.get(i));
-        
-        addNewView(msg.view);
-        // TODO (?) Send all unstable messages
-        flushViewToAll(msg.view);
-    }
-    
-    private void flushViewToAll(View v) {
-        for (ActorRef r : v.peers)
-            if (r != getSelf())
-                sendWithNwkDelay(r, new Flush(v.viewID));   
-    }
-    
-    private void onFlush(Flush msg) {
-        addFlushAck(msg.id, getSender());
-        
-        if (isFlushComplete(msg.id))
-            installView(msg.id);
-    }
-    
-    private void addFlushAck(int id, ActorRef sender) {
-        if (!flushes_received.containsKey(id))
-            flushes_received.put(id, new HashMap<>());
-        
-        HashMap<ActorRef, Boolean> this_view = flushes_received.get(id);
-        this_view.put(sender, true);
-    }
-    
-    private boolean isFlushComplete(int id) {
-        if (!views.containsKey(id)) return false;
-        int n_peers = views.get(id).peers.size();
-        int n_flushes = flushes_received.get(id).size();
-        return n_flushes == (n_peers - 1);
-    }
-    
-    private void installView(int id) {
-        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " installing View #" + id);
-        
-        this.alive_peers = this.views.get(id).peers;
-        this.epoch = id;
-        this.view_change = false;
-        
-        if (election_manager.coordinatorID != null) {
-            ActorRef coord = nodes_by_id.get(election_manager.coordinatorID);
-            if (!alive_peers.contains(coord))
-                election_manager.coordinatorID = null;
-        }
     }
     
     private void onReadRequest(ReadRequest req) {
@@ -215,11 +123,6 @@ public class ReplicaActor extends AbstractActor {
         if (election_manager.coordinatorID == null) {
             // TODO: enqueue requests during elections
             election_manager.beginElection();
-            return;
-        }
-        
-        if (this.view_change) {
-            // TODO: enqueue requests during view changes
             return;
         }
         
@@ -242,7 +145,7 @@ public class ReplicaActor extends AbstractActor {
 
         this.updateAcks.put(u_id, 0);
 
-        for (ActorRef a : this.alive_peers)
+        for (ActorRef a : this.nodes_by_id.values())
             if (a != getSelf())
                 sendWithNwkDelay(a, new UpdateMsg(u));
     }
@@ -264,10 +167,10 @@ public class ReplicaActor extends AbstractActor {
         
         // Wait for Q acks and propagate writeok to everyone
         int curr_acks = incrementUpdateAcks(msg.u.id);
-        int Q = Math.floorDiv(alive_peers.size(), 2) + 1;
+        int Q = Math.floorDiv(nodes_by_id.size() - crashed_nodes.size(), 2) + 1;
         
         if (curr_acks == Q) {
-            for (ActorRef r : alive_peers)
+            for (ActorRef r : nodes_by_id.values())
                 sendWithNwkDelay(r, new WriteOk(msg.u));
         }
     }
@@ -295,7 +198,7 @@ public class ReplicaActor extends AbstractActor {
     
     private void onWriteOkTimeout(UpdateID node) {
         if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " wait for WriteOk timed out");
-        onCrashedNode(nodes_by_id.get(election_manager.coordinatorID));
+        // onCrashedNode(nodes_by_id.get(election_manager.coordinatorID));
     }
 
     private void onCrashMsg(CrashMsg msg) {
@@ -307,7 +210,7 @@ public class ReplicaActor extends AbstractActor {
         if (election_manager.electing || election_manager.coordinatorID == null || election_manager.coordinatorID != this.replicaID)
             return;
         
-        for (ActorRef a : this.alive_peers)
+        for (ActorRef a : this.nodes_by_id.values())
             if (a != getSelf()) {
                 // if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " sending HB to " + a.path());
                 QTOB.simulateNwkDelay();
@@ -320,7 +223,7 @@ public class ReplicaActor extends AbstractActor {
     
     private void onUpdateRequestTimeout(Integer node) {
         if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " update request timed out");
-        onCrashedNode(nodes_by_id.get(election_manager.coordinatorID));
+        // onCrashedNode(nodes_by_id.get(election_manager.coordinatorID));
     }
     
     private void onHeartbeat(Heartbeat msg) {
@@ -334,7 +237,7 @@ public class ReplicaActor extends AbstractActor {
     
     private void onHeartbeatTimeout() {
         if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " Heartbeat timeout");
-        onCrashedNode(nodes_by_id.get(election_manager.coordinatorID));
+        // onCrashedNode(nodes_by_id.get(election_manager.coordinatorID));
     }
     
     private void onHeartbeatAck(HeartbeatAck msg) {
@@ -343,23 +246,20 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onHeartbeatAckTimeout(ActorRef node) {
-        if (view_change || !alive_peers.contains(node)) return; // Old ack
+        // if (view_change || !alive_peers.contains(node)) return; // Old ack
         if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " HeartbeatAck timeout for " + node);
-        onCrashedNode(node);
+        // onCrashedNode(node);
     }
     
     private void onInitializeGroup(InitializeGroup msg) {
         for (int i = 0; i < msg.group.size(); i++)
             this.nodes_by_id.put(i, msg.group.get(i));
-        createAndPropagateView(msg.group);
     }
     
     @Override
     public Receive createReceive() {
         return receiveBuilder()
             .match(InitializeGroup.class, this::onInitializeGroup)
-            .match(ViewChange.class, this::onViewChange)
-            .match(Flush.class, this::onFlush)
             .match(Election.class, election_manager::onElection)
             .match(ElectionAck.class, election_manager::onElectionAck)
             .match(Coordinator.class, election_manager::onCoordinator)

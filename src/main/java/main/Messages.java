@@ -17,22 +17,6 @@ public class Messages {
             this.group = group;
         }
     }
-    
-    public static class ViewChange implements Serializable {
-        public final View view;
-
-        public ViewChange(View v) {
-            this.view = v;
-        }
-    }
-    
-    public static class Flush implements Serializable {
-        public final int id;
-        
-        public Flush(int id) {
-            this.id = id;
-        }
-    }
       
     public static class Election implements Serializable {
         public final List<Integer> IDs;

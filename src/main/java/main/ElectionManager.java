@@ -91,7 +91,7 @@ public class ElectionManager {
     private void onElectionAckTimeout() {
         if (QTOB.VERBOSE) System.out.println("Replica " + parent.replicaID + " ElectionAck timeout");
         electing = false;
-        parent.onCrashedNode(parent.getNextActorInRing());
+        // parent.onCrashedNode(parent.getNextActorInRing());
     }
         
     public void onCoordinator(Messages.Coordinator msg) {
