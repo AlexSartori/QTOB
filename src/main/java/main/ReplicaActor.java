@@ -84,7 +84,7 @@ public class ReplicaActor extends AbstractActor {
 	
         if (election_manager.coordinatorID == replicaID) {
             seqNo = 0;
-            scheduleNextHeartbeatReminder();
+            //scheduleNextHeartbeatReminder();
         }
     }
     
@@ -142,6 +142,9 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onViewChange(ViewChange msg) {
+        if (this.views.containsKey(msg.view.viewID))
+            return;
+        
         this.view_change = true; // Pause sending new multicasts
         if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " received ViewChange #" + msg.view.viewID);
         
@@ -155,12 +158,10 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void flushViewToAll(View v) {
-        Flush msg = new Flush(v.viewID);
-        
         for (ActorRef r : v.peers)
             if (r != getSelf()) {
                 QTOB.simulateNwkDelay();
-                r.tell(msg, getSelf());   
+                r.tell(new Flush(v.viewID), getSelf());   
             }
     }
     
@@ -191,9 +192,6 @@ public class ReplicaActor extends AbstractActor {
         this.alive_peers = this.views.get(id).peers;
         this.epoch = id;
         this.view_change = false;
-        
-        if (!election_manager.electing)
-            election_manager.beginElection();
     }
     
     private void onReadRequest(ReadRequest req) {
@@ -201,11 +199,15 @@ public class ReplicaActor extends AbstractActor {
         req.client.tell(
             new ReadResponse(this.value), getSelf()
         );
+        
+        if (election_manager.coordinatorID == null)
+            election_manager.beginElection();
     }
     
     private void onWriteRequest(WriteRequest req) {
         if (election_manager.coordinatorID == null) {
             // TODO: enqueue requests during elections
+            election_manager.beginElection();
             return;
         }
         
@@ -227,7 +229,8 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void propagateUpdate(int value) {
-        UpdateID u_id = new UpdateID(epoch, seqNo++);  // be careful with ++
+        this.seqNo++;
+        UpdateID u_id = new UpdateID(epoch, seqNo);  // be careful with ++
         Update u = new Update(u_id, value);
 
         this.updateAcks.put(u_id, 0);
@@ -277,13 +280,16 @@ public class ReplicaActor extends AbstractActor {
     private void onWriteOk(WriteOk msg) {
         if (writeok_timers.containsKey(msg.u.id))
             writeok_timers.cancelTimer(msg.u.id);
-            
+        
         applyWrite(msg.u);
+        System.out.println("Replica <" + replicaID + "> update <" + epoch + ">:<" + seqNo +"> <" + this.value + ">");    
     }
     
     private void applyWrite(Update u) {
         this.updateHistory.put(u.id, u.value);
         this.value = u.value;
+        this.epoch = u.id.epoch; // TODO: not really, check
+        this.seqNo = u.id.seqNo;
     }
     
     private void onWriteOkTimeout(UpdateID node) {
@@ -302,6 +308,7 @@ public class ReplicaActor extends AbstractActor {
         
         for (ActorRef a : this.alive_peers)
             if (a != getSelf()) {
+                QTOB.simulateNwkDelay();
                 a.tell(new Heartbeat(), getSelf());
                 heartbeat_ack_timers.addTimer(a);
             }

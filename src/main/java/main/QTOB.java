@@ -19,8 +19,8 @@ public class QTOB {
     final static boolean VERBOSE = true;
     final static int N_CLIENTS = 4;
     final static int N_REPLICAS = 4;
-    final static int MAX_NWK_DELAY_MS = 200;
-    final static int NWK_TIMEOUT_MS = MAX_NWK_DELAY_MS*2 + 100;
+    final static int MAX_NWK_DELAY_MS = 100;
+    final static int NWK_TIMEOUT_MS = MAX_NWK_DELAY_MS*2 + 200;
     final static int HEARTBEAT_DELAY_MS = 700;
     final static Random RNG = new Random();
     static ActorSystem akka;
@@ -74,11 +74,12 @@ public class QTOB {
 
     private static void scheduleCrashes(List<ActorRef> replicas) {
         int how_many = 1; // RNG.nextInt(Math.floorDiv(N_REPLICAS, 2));
+        int when = 8; // 2 + RNG.nextInt(5);
         System.out.println(how_many + " replica(s) will crash.");
         
         for (int i = 0; i < how_many; i++) {
             akka.scheduler().scheduleOnce(
-                Duration.create(2 + RNG.nextInt(5), TimeUnit.SECONDS), // When
+                Duration.create(when, TimeUnit.SECONDS), // When
                 replicas.get(i),     // To whom
                 new CrashMsg(),      // Msg to send
                 akka.dispatcher(),   // System dispatcher

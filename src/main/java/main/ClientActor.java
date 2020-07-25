@@ -41,7 +41,7 @@ public class ClientActor extends AbstractActor {
     private void scheduleRequests() {
         getContext().system().scheduler().scheduleWithFixedDelay(
             Duration.create(1, TimeUnit.SECONDS), // When to start
-            Duration.create(1, TimeUnit.SECONDS), // Delay between msgs
+            Duration.create(RNG.nextInt(4)+1, TimeUnit.SECONDS), // Delay between msgs
             getSelf(),                            // To who
             new RequestTimer(),                   // Msg to send
             getContext().system().dispatcher(),   // System dispatcher
