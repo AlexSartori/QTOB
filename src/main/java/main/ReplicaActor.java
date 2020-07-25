@@ -74,6 +74,9 @@ public class ReplicaActor extends AbstractActor {
     }
     
     public void onCrashedNode(ActorRef node) {
+        if (nodes_by_id.get(election_manager.coordinatorID) == node)
+            election_manager.coordinatorID = null;
+        
         List<ActorRef> new_peers = new ArrayList<>(this.alive_peers);
         new_peers.remove(node);
         createAndPropagateView(new_peers);
@@ -120,17 +123,16 @@ public class ReplicaActor extends AbstractActor {
         this.view_change = true;
         this.epoch++;
         if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " creating new View #" + epoch);
-        View v = new View(this.epoch, new_group);
-        ViewChange msg = new ViewChange(v);
         
+        View v = new View(this.epoch, new_group);
         addNewView(v);
         // TODO (?) Send all unstable messages
-        flushViewToAll(msg.view);
+        flushViewToAll(v);
         
         for (ActorRef a : new_group) {
             if (a != getSelf()) {
                 QTOB.simulateNwkDelay();
-                a.tell(msg, getSelf()); 
+                a.tell(new ViewChange(v), getSelf()); 
             }
         }
     }
@@ -189,9 +191,16 @@ public class ReplicaActor extends AbstractActor {
     
     private void installView(int id) {
         if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " installing View #" + id);
+        
         this.alive_peers = this.views.get(id).peers;
         this.epoch = id;
         this.view_change = false;
+        
+        if (election_manager.coordinatorID != null) {
+            ActorRef coord = nodes_by_id.get(election_manager.coordinatorID);
+            if (!alive_peers.contains(coord))
+                election_manager.coordinatorID = null;
+        }
     }
     
     private void onReadRequest(ReadRequest req) {
@@ -318,7 +327,7 @@ public class ReplicaActor extends AbstractActor {
     
     private void onUpdateRequestTimeout(Integer node) {
         if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " update request timed out");
-        onCrashedNode(nodes_by_id.get(node));
+        onCrashedNode(nodes_by_id.get(election_manager.coordinatorID));
     }
     
     private void onHeartbeat(Heartbeat msg) {
