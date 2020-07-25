@@ -18,11 +18,11 @@ import scala.concurrent.duration.Duration;
 public class QTOB {
     final static boolean VERBOSE = true;
     final static int N_CLIENTS = 4;
-    final static int N_REPLICAS = 4;
+    final static int N_REPLICAS = 6;
     final static int MAX_NWK_DELAY_MS = 100;
     final static int NWK_TIMEOUT_MS = MAX_NWK_DELAY_MS*2 + 200;
     final static int HEARTBEAT_DELAY_MS = 700;
-    final static int HEARTBEAT_TIMEOUT_MS = HEARTBEAT_DELAY_MS + MAX_NWK_DELAY_MS + 200;
+    final static int HEARTBEAT_TIMEOUT_MS = HEARTBEAT_DELAY_MS + MAX_NWK_DELAY_MS*2 + 300;
     final static Random RNG = new Random();
     static ActorSystem akka;
     
@@ -74,8 +74,8 @@ public class QTOB {
     }
 
     private static void scheduleCrashes(List<ActorRef> replicas) {
-        int[] who  = new int[] {3}; // RNG.nextInt(Math.floorDiv(N_REPLICAS, 2));
-        int[] when = new int[] {5}; // 2 + RNG.nextInt(5);
+        int[] who  = new int[] {2, 5}; // RNG.nextInt(Math.floorDiv(N_REPLICAS, 2));
+        int[] when = new int[] {5, 10}; // 2 + RNG.nextInt(5);
         System.out.println(who.length + " replica(s) will crash.");
         
         for (int i = 0; i < who.length; i++) {

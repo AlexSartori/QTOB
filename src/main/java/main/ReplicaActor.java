@@ -54,8 +54,7 @@ public class ReplicaActor extends AbstractActor {
         this.update_req_timers = new TimeoutMap<>(this::onUpdateRequestTimeout, QTOB.NWK_TIMEOUT_MS);
         this.writeok_timers = new TimeoutMap<>(this::onWriteOkTimeout, QTOB.NWK_TIMEOUT_MS);
 
-        
-        this.epoch = -1;  // on the first election this will change to 0
+        this.epoch = -1;  // on the first view change this will change to 0
         this.seqNo = 0;
         
         this.updateAcks = new HashMap<>();
@@ -317,8 +316,8 @@ public class ReplicaActor extends AbstractActor {
         
         for (ActorRef a : this.alive_peers)
             if (a != getSelf()) {
+                // if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " sending HB to " + a.path());
                 QTOB.simulateNwkDelay();
-                if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " sending HB to " + a.path());
                 a.tell(new Heartbeat(), getSelf());
                 heartbeat_ack_timers.addTimer(a);
             }
@@ -332,7 +331,7 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onHeartbeat(Heartbeat msg) {
-        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " HB received");
+        // if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " HB received");
         try { heartbeat_timer.cancelFirstTimer(); }
         catch (Exception e) { } // First heartbeat
         heartbeat_timer.addTimer();
@@ -346,11 +345,13 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onHeartbeatAck(HeartbeatAck msg) {
-        heartbeat_ack_timers.cancelTimer(getSender());
+        try { heartbeat_ack_timers.cancelTimer(getSender()); }
+        catch (Exception e) { /* Timers were canceled */ }
     }
     
     private void onHeartbeatAckTimeout(ActorRef node) {
-        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " HeartbeatAck timeout");
+        if (view_change || !alive_peers.contains(node)) return; // Old ack
+        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " HeartbeatAck timeout for " + node);
         onCrashedNode(node);
     }
     
