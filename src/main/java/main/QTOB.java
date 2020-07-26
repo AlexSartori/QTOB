@@ -34,7 +34,7 @@ public class QTOB {
         // Create actors
         List<ActorRef> clients = createClients();
         List<ActorRef> replicas = createReplicas();
-		
+        
         // Make everyone aware of the group
         initializeActors(replicas, clients);
         
@@ -44,6 +44,7 @@ public class QTOB {
         // Handle termination
         waitForKeypress();
         akka.terminate();
+        System.exit(0);
     }
 
     private static List<ActorRef> createClients() {
@@ -75,7 +76,7 @@ public class QTOB {
     }
 
     private static void scheduleCrashes(List<ActorRef> replicas) {
-        int[] who  = new int[] {}; // RNG.nextInt(Math.floorDiv(N_REPLICAS, 2));
+        int[] who  = new int[] {5}; // RNG.nextInt(Math.floorDiv(N_REPLICAS, 2));
         int[] when = new int[] {5, 10}; // 2 + RNG.nextInt(5);
         System.out.println(who.length + " replica(s) will crash.");
         

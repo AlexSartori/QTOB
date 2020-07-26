@@ -3,6 +3,7 @@ package main;
 import akka.actor.ActorRef;
 import java.util.ArrayList;
 import java.util.List;
+import main.Messages.*;
 
 /**
  *
@@ -25,28 +26,35 @@ public class ElectionManager {
     
     public void beginElection() {
         if (electing) return;
-        electing = true;
         if (QTOB.VERBOSE) System.out.println("Replica " + parent.replicaID + " beginElection()");
+        electing = true;
+        coordinatorID = null;
         
-        // Ring-based Algorithm
-        Messages.Election msg = createElectionMsg();
-        
-        ActorRef next = parent.getNextActorInRing();
-        QTOB.simulateNwkDelay();
-        next.tell(msg, parent.getSelf());
+        Election msg = createElectionMsg();
+        parent.sendWithNwkDelay(parent.getNextActorInRing(), msg);
         this.election_ack_timers.addTimer();
     }
     
-    private Messages.Election createElectionMsg() {
+    private Election createElectionMsg() {
         ArrayList<Integer> ids = new ArrayList<>();
         ids.add(parent.replicaID);
-        return new Messages.Election(ids);
+        return new Election(ids, parent.getMostRecentUpdate(), parent.replicaID);
     }
     
-    private Messages.Election expandElectionMsg(Messages.Election msg) {
+    private Election expandElectionMsg(Election msg) {
         ArrayList<Integer> ids = new ArrayList<>(msg.IDs);
         ids.add(parent.replicaID);
-        return new Messages.Election(ids);
+        
+        UpdateID latest = msg.most_recent_update;
+        UpdateID my_latest = parent.getMostRecentUpdate();
+        int update_owner = msg.most_recent_update_owner;
+        if (my_latest != null && my_latest.happensAfter(latest)) {
+            if (QTOB.VERBOSE) System.out.println("Replica " + parent.replicaID + " adding most recent update to election");
+            latest = parent.getMostRecentUpdate();
+            update_owner = parent.replicaID;
+        }
+        
+        return new Election(ids, latest, update_owner);
     }
     
     private int findMaxID(List<Integer> ids) {
@@ -57,7 +65,7 @@ public class ElectionManager {
         return max;
     }
     
-    public void onElection(Messages.Election msg) {
+    public void onElection(Election msg) {
         electing = true;
         coordinatorID = null;
         
@@ -65,36 +73,33 @@ public class ElectionManager {
         ActorRef next = parent.getNextActorInRing();
         
         if (end_election) { // Change to coordinator message type
-            next.tell(
-                new Messages.Coordinator(new ArrayList<>(msg.IDs)),
-                parent.getSelf()
+            parent.sendWithNwkDelay(
+                next,
+                new Coordinator(new ArrayList<>(msg.IDs))
             );
         } else {
             // Add my ID and recirculate
-            Messages.Election el_msg = expandElectionMsg(msg);
-            next.tell(el_msg, parent.getSelf());
+            parent.sendWithNwkDelay(next, expandElectionMsg(msg));
             this.election_ack_timers.addTimer();
         }
         
         // Send back an ElectionAck to the ELECTION sender
-        parent.getSender().tell(
-            new Messages.ElectionAck(parent.replicaID),
-            parent.getSelf()
-        );
+        parent.sendWithNwkDelay(parent.getSender(), new ElectionAck(parent.replicaID));
     }
     
-    public void onElectionAck(Messages.ElectionAck msg) {
+    public void onElectionAck(ElectionAck msg) {
         // if (QTOB.VERBOSE) System.out.println("Replica " + parent.replicaID + " ElectionAck from " + msg.from);
         this.election_ack_timers.cancelFirstTimer();
     }
     
     private void onElectionAckTimeout() {
         if (QTOB.VERBOSE) System.out.println("Replica " + parent.replicaID + " ElectionAck timeout");
+        parent.crashed_nodes.add(parent.getNextIDInRing());
         electing = false;
-        // parent.onCrashedNode(parent.getNextActorInRing());
+        beginElection();
     }
-        
-    public void onCoordinator(Messages.Coordinator msg) {
+    
+    public void onCoordinator(Coordinator msg) {
         if (coordinatorID != null)
             return; // End recirculation
         
@@ -104,7 +109,7 @@ public class ElectionManager {
         new_coord_callback.run();
         
         parent.getNextActorInRing().tell(
-            new Messages.Coordinator(new ArrayList<>(msg.IDs)),
+            new Coordinator(new ArrayList<>(msg.IDs)),
             parent.getSelf()
         );
     }

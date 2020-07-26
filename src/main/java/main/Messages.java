@@ -20,9 +20,13 @@ public class Messages {
       
     public static class Election implements Serializable {
         public final List<Integer> IDs;
+        public final UpdateID most_recent_update;
+        public final int most_recent_update_owner;
         
-        public Election(List<Integer> ids) {
+        public Election(List<Integer> ids, UpdateID most_recent, int update_owner) {
             this.IDs = Collections.unmodifiableList(ids);
+            this.most_recent_update = most_recent;
+            this.most_recent_update_owner = update_owner;
         }
     }
     

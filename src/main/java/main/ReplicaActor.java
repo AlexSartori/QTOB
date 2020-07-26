@@ -17,15 +17,15 @@ import scala.concurrent.duration.Duration;
 public class ReplicaActor extends AbstractActor {
     public final int replicaID;
     private int value;
-    private final Map<UpdateID, Integer> updateHistory;
+    private final Map<UpdateID, Integer> unstable_updates, delivered_updates;
     private final ElectionManager election_manager;
     
     private final TimeoutMap<Integer> update_req_timers;
     private final TimeoutMap<UpdateID> writeok_timers;
 
     private int epoch, seqNo;
-    private final Map<Integer, ActorRef> nodes_by_id;
-    private final List<Integer> crashed_nodes;
+    public final Map<Integer, ActorRef> nodes_by_id;
+    public final List<Integer> crashed_nodes;
     private final TimeoutList heartbeat_timer;
     
     // Only used if replica is coordinator
@@ -40,7 +40,8 @@ public class ReplicaActor extends AbstractActor {
         this.nodes_by_id = new HashMap<>();
         this.crashed_nodes = new ArrayList<>();
         this.heartbeat_timer = new TimeoutList(this::onHeartbeatTimeout, QTOB.HEARTBEAT_TIMEOUT_MS);
-        this.updateHistory = new HashMap<>(); // to be changed, maybe
+        this.unstable_updates = new HashMap<>();
+        this.delivered_updates = new HashMap<>();
         this.update_req_timers = new TimeoutMap<>(this::onUpdateRequestTimeout, QTOB.NWK_TIMEOUT_MS);
         this.writeok_timers = new TimeoutMap<>(this::onWriteOkTimeout, QTOB.NWK_TIMEOUT_MS);
 
@@ -61,14 +62,10 @@ public class ReplicaActor extends AbstractActor {
         writeok_timers.cancelAll();
     }
     
-    /* public void onCrashedNode(ActorRef node) {
-        if (nodes_by_id.get(election_manager.coordinatorID) == node)
-            election_manager.coordinatorID = null;
-        
-        List<ActorRef> new_peers = new ArrayList<>(this.alive_peers);
-        new_peers.remove(node);
-        // createAndPropagateView(new_peers);
-    } */
+    public void onCoordinatorCrash() {
+        crashed_nodes.add(election_manager.coordinatorID);
+        election_manager.beginElection();
+    }
     
     public void onNewCoordinator() {
         if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " coordinator => " + election_manager.coordinatorID);
@@ -81,8 +78,9 @@ public class ReplicaActor extends AbstractActor {
     }
     
     public int getNextIDInRing() {
-        int id = replicaID;
+        if (nodes_by_id.isEmpty()) return replicaID;
         
+        int id = replicaID;
         do id = ++id % nodes_by_id.size();
         while (crashed_nodes.contains(id));
         
@@ -91,6 +89,16 @@ public class ReplicaActor extends AbstractActor {
     
     public ActorRef getNextActorInRing() {
         return nodes_by_id.get(getNextIDInRing());
+    }
+    
+    public UpdateID getMostRecentUpdate() {
+        UpdateID latest = null;
+        
+        for (UpdateID id : delivered_updates.keySet())
+            if (latest == null || id.happensAfter(latest))
+                latest = id;
+        
+        return latest;
     }
     
     private void scheduleNextHeartbeatReminder() {
@@ -103,7 +111,7 @@ public class ReplicaActor extends AbstractActor {
         );
     }
     
-    private void sendWithNwkDelay(ActorRef to, Object msg) {
+    public void sendWithNwkDelay(ActorRef to, Object msg) {
         QTOB.simulateNwkDelay();
         to.tell(msg, getSelf());
     }
@@ -153,6 +161,8 @@ public class ReplicaActor extends AbstractActor {
             writeok_timers.addTimer(msg.u.id);
         }
         
+        // if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " " + unstable_updates.size() + " unstable updates in queue");
+        this.unstable_updates.put(msg.u.id, msg.u.value);
         sendWithNwkDelay(getSender(), new UpdateAck(msg.u));
     }
     
@@ -187,7 +197,8 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void applyWrite(Update u) {
-        this.updateHistory.put(u.id, u.value);
+        this.unstable_updates.remove(u.id);
+        this.delivered_updates.put(u.id, u.value);
         this.value = u.value;
         this.epoch = u.id.epoch; // TODO: not really, check
         this.seqNo = u.id.seqNo;
@@ -195,7 +206,7 @@ public class ReplicaActor extends AbstractActor {
     
     private void onWriteOkTimeout(UpdateID node) {
         if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " wait for WriteOk timed out");
-        // onCrashedNode(nodes_by_id.get(election_manager.coordinatorID));
+        onCoordinatorCrash();
     }
 
     private void onCrashMsg(CrashMsg msg) {
@@ -219,7 +230,7 @@ public class ReplicaActor extends AbstractActor {
     
     private void onUpdateRequestTimeout(Integer node) {
         if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " update request timed out");
-        // onCrashedNode(nodes_by_id.get(election_manager.coordinatorID));
+        onCoordinatorCrash();
     }
     
     private void onHeartbeat(Heartbeat msg) {
@@ -231,7 +242,7 @@ public class ReplicaActor extends AbstractActor {
     
     private void onHeartbeatTimeout() {
         if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " Heartbeat timeout");
-        // onCrashedNode(nodes_by_id.get(election_manager.coordinatorID));
+        onCoordinatorCrash();
     }
     
     private void onInitializeGroup(InitializeGroup msg) {
