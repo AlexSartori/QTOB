@@ -26,7 +26,7 @@ public class ElectionManager {
     
     public void beginElection() {
         if (electing) return;
-        if (QTOB.VERBOSE) System.out.println("Replica " + parent.replicaID + " beginElection()");
+        if (QTOB.VERBOSE) parent.log("beginElection()");
         electing = true;
         coordinatorID = null;
         
@@ -49,7 +49,7 @@ public class ElectionManager {
         UpdateID my_latest = parent.getMostRecentUpdate();
         int update_owner = msg.most_recent_update_owner;
         if (my_latest != null && my_latest.happensAfter(latest)) {
-            if (QTOB.VERBOSE) System.out.println("Replica " + parent.replicaID + " adding most recent update to election");
+            if (QTOB.VERBOSE) parent.log("Adding most recent update to election");
             latest = parent.getMostRecentUpdate();
             update_owner = parent.replicaID;
         }
@@ -88,12 +88,12 @@ public class ElectionManager {
     }
     
     public void onElectionAck(ElectionAck msg) {
-        // if (QTOB.VERBOSE) System.out.println("Replica " + parent.replicaID + " ElectionAck from " + msg.from);
+        // if (QTOB.VERBOSE) parent.log("ElectionAck from " + msg.from);
         this.election_ack_timers.cancelFirstTimer();
     }
     
     private void onElectionAckTimeout() {
-        if (QTOB.VERBOSE) System.out.println("Replica " + parent.replicaID + " ElectionAck timeout");
+        if (QTOB.VERBOSE) parent.log("ElectionAck timeout");
         parent.crashed_nodes.add(parent.getNextIDInRing());
         electing = false;
         beginElection();

@@ -33,6 +33,10 @@ public class ClientActor extends AbstractActor {
         return Props.create(ClientActor.class, () -> new ClientActor(id));
     }
     
+    public void log(String msg) {
+        System.out.println("[C" + clientID + "] " + msg);
+    }
+    
     @Override
     public void preStart() {
         scheduleRequests();
@@ -69,7 +73,7 @@ public class ClientActor extends AbstractActor {
     }
     
     private void sendWriteReq() {
-        if (QTOB.VERBOSE) System.out.println("Client " + clientID + " write req to " + target_replica_id);
+        if (QTOB.VERBOSE) log("Write req to " + target_replica_id);
         this.replicas.get(this.target_replica_id).tell(
             new WriteRequest(getSelf(), this.RNG.nextInt(1000)),
             getSelf()
@@ -77,7 +81,7 @@ public class ClientActor extends AbstractActor {
     }
     
     private void onReadTimeout() {
-        if (QTOB.VERBOSE) System.out.println("Client " + clientID + " timeout for replica " + target_replica_id);
+        if (QTOB.VERBOSE) log("Timeout for replica " + target_replica_id);
         chooseTargetReplica();
     }
     

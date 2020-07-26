@@ -55,6 +55,10 @@ public class ReplicaActor extends AbstractActor {
         return Props.create(ReplicaActor.class, () -> new ReplicaActor(ID, value));
     }
     
+    public void log(String msg) {
+        System.out.println("[R" + replicaID + "] " + msg);
+    }
+    
     private void setStateToCrashed() {
         getContext().become(crashed());
         heartbeat_timer.cancelAll();
@@ -68,7 +72,7 @@ public class ReplicaActor extends AbstractActor {
     }
     
     public void onNewCoordinator() {
-        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " coordinator => " + election_manager.coordinatorID);
+        if (QTOB.VERBOSE) log("Coordinator => " + election_manager.coordinatorID);
 	
         epoch++;
         if (election_manager.coordinatorID == replicaID) {
@@ -125,9 +129,9 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onWriteRequest(WriteRequest req) {
-        if (election_manager.coordinatorID == null) {
-            // TODO: enqueue requests during elections
+        if (election_manager.electing || election_manager.coordinatorID == null) {
             election_manager.beginElection();
+            if (QTOB.VERBOSE) log("Election in progress, dropping write request");
             return;
         }
         
@@ -205,12 +209,12 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onWriteOkTimeout(UpdateID node) {
-        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " wait for WriteOk timed out");
+        if (QTOB.VERBOSE) log("Wait for WriteOk timed out");
         onCoordinatorCrash();
     }
 
     private void onCrashMsg(CrashMsg msg) {
-        System.out.println("Replica " + replicaID + " setting state to CRASHED");
+        log("Setting state to CRASHED");
         setStateToCrashed();
     }
     
@@ -229,7 +233,7 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onUpdateRequestTimeout(Integer node) {
-        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " update request timed out");
+        if (QTOB.VERBOSE) log("Update request timed out");
         onCoordinatorCrash();
     }
     
@@ -241,7 +245,7 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onHeartbeatTimeout() {
-        if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " Heartbeat timeout");
+        if (QTOB.VERBOSE) log("Heartbeat timeout");
         onCoordinatorCrash();
     }
     
@@ -265,7 +269,7 @@ public class ReplicaActor extends AbstractActor {
             .match(CrashMsg.class, this::onCrashMsg)
             .match(HeartbeatReminder.class, this::onHeartbeatReminder)
             .match(Heartbeat.class, this::onHeartbeat)
-            .matchAny(msg -> {System.out.println("Replica " + replicaID + " unhandled " + msg.getClass());})
+            .matchAny(msg -> {System.err.println("Replica " + replicaID + " unhandled " + msg.getClass());})
             .build();
     }
     
@@ -273,7 +277,7 @@ public class ReplicaActor extends AbstractActor {
         return receiveBuilder()
             .matchAny(msg -> {
                 if (QTOB.VERBOSE)
-                    System.out.println("Replica " + replicaID + " crashed but " + msg.getClass());
+                    log("Crashed but " + msg.getClass());
             })
             .build();
     }
