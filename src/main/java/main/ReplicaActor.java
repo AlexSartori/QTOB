@@ -55,11 +55,8 @@ public class ReplicaActor extends AbstractActor {
         return Props.create(ReplicaActor.class, () -> new ReplicaActor(ID, value));
     }
     
-    public void log(String msg) {
-        System.out.println("[R" + replicaID + "] " + msg);
-    }
-    
     private void setStateToCrashed() {
+        log("Setting state to CRASHED");
         getContext().become(crashed());
         heartbeat_timer.cancelAll();
         update_req_timers.cancelAll();
@@ -79,6 +76,20 @@ public class ReplicaActor extends AbstractActor {
             seqNo = 0;
             scheduleNextHeartbeatReminder();
         }
+    }
+    
+    public void log(String msg) {
+        System.out.println("[R" + replicaID + "] " + msg);
+    }
+    
+    private void scheduleNextHeartbeatReminder() {
+        getContext().system().scheduler().scheduleOnce(
+            Duration.create(QTOB.HEARTBEAT_DELAY_MS, TimeUnit.MILLISECONDS),
+            getSelf(),                            // To whom
+            new HeartbeatReminder(),              // Msg to send
+            getContext().system().dispatcher(),   // System dispatcher
+            getSelf()                             // Sender
+        );
     }
     
     public int getNextIDInRing() {
@@ -103,16 +114,6 @@ public class ReplicaActor extends AbstractActor {
                 latest = id;
         
         return latest;
-    }
-    
-    private void scheduleNextHeartbeatReminder() {
-        getContext().system().scheduler().scheduleOnce(
-            Duration.create(QTOB.HEARTBEAT_DELAY_MS, TimeUnit.MILLISECONDS),
-            getSelf(),                            // To whom
-            new HeartbeatReminder(),              // Msg to send
-            getContext().system().dispatcher(),   // System dispatcher
-            getSelf()                             // Sender
-        );
     }
     
     public void sendWithNwkDelay(ActorRef to, Object msg) {
@@ -154,9 +155,9 @@ public class ReplicaActor extends AbstractActor {
 
         this.updateAcks.put(u_id, 0);
 
-        for (ActorRef a : this.nodes_by_id.values())
-            if (a != getSelf())
-                sendWithNwkDelay(a, new UpdateMsg(u));
+        for (int id : nodes_by_id.keySet())
+            if (id != replicaID && !crashed_nodes.contains(id))
+                sendWithNwkDelay(nodes_by_id.get(id), new UpdateMsg(u));
     }
     
     private void onUpdateMsg(UpdateMsg msg) {
@@ -181,8 +182,9 @@ public class ReplicaActor extends AbstractActor {
         int Q = Math.floorDiv(nodes_by_id.size() - crashed_nodes.size(), 2) + 1;
         
         if (curr_acks == Q) {
-            for (ActorRef r : nodes_by_id.values())
-                sendWithNwkDelay(r, new WriteOk(msg.u));
+            for (int id : nodes_by_id.keySet())
+                if (!crashed_nodes.contains(id))
+                    sendWithNwkDelay(nodes_by_id.get(id), new WriteOk(msg.u));
         }
     }
     
@@ -214,7 +216,6 @@ public class ReplicaActor extends AbstractActor {
     }
 
     private void onCrashMsg(CrashMsg msg) {
-        log("Setting state to CRASHED");
         setStateToCrashed();
     }
     
@@ -222,11 +223,10 @@ public class ReplicaActor extends AbstractActor {
         if (election_manager.electing || election_manager.coordinatorID == null || election_manager.coordinatorID != this.replicaID)
             return;
         
-        for (ActorRef a : this.nodes_by_id.values())
-            if (a != getSelf()) {
-                // if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " sending HB to " + a.path());
+        for (int id : this.nodes_by_id.keySet())
+            if (id != replicaID && !crashed_nodes.contains(id)) {
                 QTOB.simulateNwkDelay();
-                sendWithNwkDelay(a, new Heartbeat());
+                sendWithNwkDelay(nodes_by_id.get(id), new Heartbeat());
             }
         
         scheduleNextHeartbeatReminder();
@@ -269,7 +269,7 @@ public class ReplicaActor extends AbstractActor {
             .match(CrashMsg.class, this::onCrashMsg)
             .match(HeartbeatReminder.class, this::onHeartbeatReminder)
             .match(Heartbeat.class, this::onHeartbeat)
-            .matchAny(msg -> {System.err.println("Replica " + replicaID + " unhandled " + msg.getClass());})
+            .matchAny(msg -> {System.err.println("Replica " + replicaID + " unhandled " + msg.getClass().getSimpleName());})
             .build();
     }
     
@@ -277,7 +277,7 @@ public class ReplicaActor extends AbstractActor {
         return receiveBuilder()
             .matchAny(msg -> {
                 if (QTOB.VERBOSE)
-                    log("Crashed but " + msg.getClass());
+                    log("Crashed but got: " + msg.getClass().getSimpleName());
             })
             .build();
     }
