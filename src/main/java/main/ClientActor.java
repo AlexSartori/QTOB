@@ -64,6 +64,8 @@ public class ClientActor extends AbstractActor {
     
     private void sendReadReq() {
         System.out.println("Client " + clientID + " read req to " + target_replica_id);
+        
+        QTOB.simulateNwkDelay();
         this.replicas.get(this.target_replica_id).tell(
             new ReadRequest(getSelf()),
             getSelf()
@@ -74,6 +76,8 @@ public class ClientActor extends AbstractActor {
     
     private void sendWriteReq() {
         if (QTOB.VERBOSE) log("Write req to " + target_replica_id);
+        
+        QTOB.simulateNwkDelay();
         this.replicas.get(this.target_replica_id).tell(
             new WriteRequest(getSelf(), this.RNG.nextInt(1000)),
             getSelf()
