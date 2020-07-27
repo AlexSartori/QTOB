@@ -38,19 +38,26 @@ public class ElectionManager {
     private Election createElectionMsg() {
         ArrayList<Integer> ids = new ArrayList<>();
         ids.add(parent.replicaID);
-        return new Election(ids, parent.getMostRecentUpdate(), parent.replicaID);
+        
+        UpdateList updates = new UpdateList();
+        updates.add(parent.getMostRecentUpdate());
+        
+        return new Election(ids, updates, parent.replicaID);
     }
     
     private Election expandElectionMsg(Election msg) {
+        if (msg.IDs.contains(parent.replicaID))
+            return new Election(msg.IDs, msg.most_recent_updates, msg.most_recent_update_owner);
+        
         ArrayList<Integer> ids = new ArrayList<>(msg.IDs);
         ids.add(parent.replicaID);
         
-        UpdateID latest = msg.most_recent_update;
-        UpdateID my_latest = parent.getMostRecentUpdate();
+        UpdateList latest = msg.most_recent_updates;
         int update_owner = msg.most_recent_update_owner;
-        if (my_latest != null && my_latest.happensAfter(latest)) {
+        Update my_latest = parent.getMostRecentUpdate();
+        if (my_latest != null && my_latest.happensAfter(latest.getMostRecent())) {
             if (QTOB.VERBOSE) parent.log("Adding most recent update to election");
-            latest = parent.getMostRecentUpdate();
+            latest.add(my_latest);
             update_owner = parent.replicaID;
         }
         
@@ -69,22 +76,28 @@ public class ElectionManager {
         electing = true;
         coordinatorID = null;
         
-        Boolean end_election = msg.IDs.contains(parent.replicaID);
+        int winner_so_far = getWinner(msg);
         ActorRef next = parent.getNextActorInRing();
         
-        if (end_election) { // Change to coordinator message type
+        if (msg.IDs.contains(parent.replicaID) && winner_so_far == parent.replicaID) {
+            // Change to synchronize message type
             parent.sendWithNwkDelay(
                 next,
-                new Coordinator(new ArrayList<>(msg.IDs))
+                new Synchronize(msg.most_recent_updates)
             );
         } else {
-            // Add my ID and recirculate
+            // Add my updates and recirculate
+            // TODO can the latest update change..?
             parent.sendWithNwkDelay(next, expandElectionMsg(msg));
             this.election_ack_timers.addTimer();
         }
         
         // Send back an ElectionAck to the ELECTION sender
         parent.sendWithNwkDelay(parent.getSender(), new ElectionAck(parent.replicaID));
+    }
+    
+    private int getWinner(Election msg) {
+        return msg.most_recent_update_owner;
     }
     
     public void onElectionAck(ElectionAck msg) {
@@ -99,18 +112,18 @@ public class ElectionManager {
         beginElection();
     }
     
-    public void onCoordinator(Coordinator msg) {
+    public void onSynchronize(Synchronize msg) {
         if (coordinatorID != null)
             return; // End recirculation
         
-	// Election based on ID
-        coordinatorID = findMaxID(msg.IDs);
+        ActorRef coord = parent.getSender();
+        for (int id : parent.nodes_by_id.keySet())
+            if (parent.nodes_by_id.get(id) == coord) {
+                coordinatorID = id;
+                break;
+            }
+        
         electing = false;
         new_coord_callback.run();
-        
-        parent.getNextActorInRing().tell(
-            new Coordinator(new ArrayList<>(msg.IDs)),
-            parent.getSelf()
-        );
     }
 }

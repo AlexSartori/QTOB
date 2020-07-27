@@ -20,12 +20,12 @@ public class Messages {
       
     public static class Election implements Serializable {
         public final List<Integer> IDs;
-        public final UpdateID most_recent_update;
+        public final UpdateList most_recent_updates; // TODO must be a list!
         public final int most_recent_update_owner;
         
-        public Election(List<Integer> ids, UpdateID most_recent, int update_owner) {
+        public Election(List<Integer> ids, UpdateList most_recent, int update_owner) {
             this.IDs = Collections.unmodifiableList(ids);
-            this.most_recent_update = most_recent;
+            this.most_recent_updates = most_recent.duplicate();
             this.most_recent_update_owner = update_owner;
         }
     }
@@ -38,11 +38,11 @@ public class Messages {
         }
     }
     
-    public static class Coordinator implements Serializable {
-        public final List<Integer> IDs;
+    public static class Synchronize implements Serializable {
+        public final UpdateList updates;
         
-        public Coordinator(List<Integer> ids) {
-            this.IDs = Collections.unmodifiableList(ids);
+        public Synchronize(UpdateList updates) {
+            this.updates = updates.duplicate();
         }
     }
     

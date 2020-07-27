@@ -17,7 +17,7 @@ import scala.concurrent.duration.Duration;
 public class ReplicaActor extends AbstractActor {
     public final int replicaID;
     private int value;
-    private final Map<UpdateID, Integer> unstable_updates, delivered_updates;
+    private final UpdateList unstable_updates, delivered_updates;
     private final ElectionManager election_manager;
     
     private final TimeoutMap<Integer> update_req_timers;
@@ -40,12 +40,12 @@ public class ReplicaActor extends AbstractActor {
         this.nodes_by_id = new HashMap<>();
         this.crashed_nodes = new ArrayList<>();
         this.heartbeat_timer = new TimeoutList(this::onHeartbeatTimeout, QTOB.HEARTBEAT_TIMEOUT_MS);
-        this.unstable_updates = new HashMap<>();
-        this.delivered_updates = new HashMap<>();
+        this.unstable_updates = new UpdateList();
+        this.delivered_updates = new UpdateList();
         this.update_req_timers = new TimeoutMap<>(this::onUpdateRequestTimeout, QTOB.NWK_TIMEOUT_MS);
         this.writeok_timers = new TimeoutMap<>(this::onWriteOkTimeout, QTOB.NWK_TIMEOUT_MS);
 
-        this.epoch = -1;  // on the first view change this will change to 0
+        this.epoch = -1;  // on the first election this will change to 0
         this.seqNo = 0;
         
         this.updateAcks = new HashMap<>();
@@ -106,14 +106,8 @@ public class ReplicaActor extends AbstractActor {
         return nodes_by_id.get(getNextIDInRing());
     }
     
-    public UpdateID getMostRecentUpdate() {
-        UpdateID latest = null;
-        
-        for (UpdateID id : delivered_updates.keySet())
-            if (latest == null || id.happensAfter(latest))
-                latest = id;
-        
-        return latest;
+    public Update getMostRecentUpdate() {
+        return delivered_updates.getMostRecent();
     }
     
     public void sendWithNwkDelay(ActorRef to, Object msg) {
@@ -167,7 +161,7 @@ public class ReplicaActor extends AbstractActor {
         }
         
         // if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " " + unstable_updates.size() + " unstable updates in queue");
-        this.unstable_updates.put(msg.u.id, msg.u.value);
+        this.unstable_updates.add(msg.u);
         sendWithNwkDelay(getSender(), new UpdateAck(msg.u));
     }
     
@@ -204,7 +198,7 @@ public class ReplicaActor extends AbstractActor {
     
     private void applyWrite(Update u) {
         this.unstable_updates.remove(u.id);
-        this.delivered_updates.put(u.id, u.value);
+        this.delivered_updates.add(u);
         this.value = u.value;
         this.epoch = u.id.epoch; // TODO: not really, check
         this.seqNo = u.id.seqNo;
@@ -260,7 +254,7 @@ public class ReplicaActor extends AbstractActor {
             .match(InitializeGroup.class, this::onInitializeGroup)
             .match(Election.class, election_manager::onElection)
             .match(ElectionAck.class, election_manager::onElectionAck)
-            .match(Coordinator.class, election_manager::onCoordinator)
+            .match(Synchronize.class, election_manager::onSynchronize)
             .match(ReadRequest.class, this::onReadRequest)
             .match(WriteRequest.class, this::onWriteRequest)
             .match(UpdateMsg.class, this::onUpdateMsg)
