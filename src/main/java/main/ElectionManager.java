@@ -46,9 +46,6 @@ public class ElectionManager {
     }
     
     private Election expandElectionMsg(Election msg) {
-        if (msg.IDs.contains(parent.replicaID))
-            return new Election(msg.IDs, msg.most_recent_updates, msg.most_recent_update_owner);
-        
         ArrayList<Integer> ids = new ArrayList<>(msg.IDs);
         ids.add(parent.replicaID);
         
@@ -78,16 +75,19 @@ public class ElectionManager {
         
         int winner_so_far = getWinner(msg);
         ActorRef next = parent.getNextActorInRing();
+        if (QTOB.VERBOSE) parent.log("onElection, IDs=" + msg.IDs);
         
         if (msg.IDs.contains(parent.replicaID) && winner_so_far == parent.replicaID) {
+            if (QTOB.VERBOSE) parent.log("Won election, synchronizing");
             // Change to synchronize message type
-            parent.sendWithNwkDelay(
-                next,
-                new Synchronize(msg.most_recent_updates)
-            );
-        } else {
+            for (int id : parent.nodes_by_id.keySet())
+                if (!parent.crashed_nodes.contains(id))
+                    parent.sendWithNwkDelay(
+                        parent.nodes_by_id.get(id),
+                        new Synchronize(msg.most_recent_updates)
+                    );
+        } else if (!msg.IDs.contains(parent.replicaID)) {
             // Add my updates and recirculate
-            // TODO can the latest update change..?
             parent.sendWithNwkDelay(next, expandElectionMsg(msg));
             this.election_ack_timers.addTimer();
         }
@@ -97,11 +97,14 @@ public class ElectionManager {
     }
     
     private int getWinner(Election msg) {
-        return msg.most_recent_update_owner;
+        if (msg.most_recent_updates.isEmpty())
+            return findMaxID(msg.IDs);
+        else
+            return msg.most_recent_update_owner;
     }
     
     public void onElectionAck(ElectionAck msg) {
-        // if (QTOB.VERBOSE) parent.log("ElectionAck from " + msg.from);
+        if (QTOB.VERBOSE) parent.log("ElectionAck from " + msg.from);
         this.election_ack_timers.cancelFirstTimer();
     }
     
@@ -113,9 +116,6 @@ public class ElectionManager {
     }
     
     public void onSynchronize(Synchronize msg) {
-        if (coordinatorID != null)
-            return; // End recirculation
-        
         ActorRef coord = parent.getSender();
         for (int id : parent.nodes_by_id.keySet())
             if (parent.nodes_by_id.get(id) == coord) {
@@ -123,6 +123,7 @@ public class ElectionManager {
                 break;
             }
         
+        if (QTOB.VERBOSE) parent.log("Recv synch, updates -> " + msg.updates);
         electing = false;
         new_coord_callback.run();
     }

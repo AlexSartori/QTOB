@@ -32,4 +32,9 @@ public class UpdateID {
     public boolean happensAfter(UpdateID other) {
         return !this.equals(other) && !this.happensBefore(other);
     }
+    
+    @Override
+    public String toString() {
+        return epoch + ":" + seqNo;
+    }
 }

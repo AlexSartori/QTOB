@@ -38,6 +38,14 @@ public class UpdateList {
         return null;
     }
     
+    public int size() {
+        return list.size();
+    }
+    
+    public boolean isEmpty() {
+        return list.isEmpty();
+    }
+    
     public Update getMostRecent() {
         if (list.isEmpty())
             return null;
@@ -46,5 +54,13 @@ public class UpdateList {
     
     public UpdateList duplicate() {
         return new UpdateList();
+    }
+    
+    @Override
+    public String toString() {
+        String s = "{";
+        for (Update u : list)
+            s += u.id + ", ";
+        return s + "}";
     }
 }

@@ -79,7 +79,10 @@ public class ReplicaActor extends AbstractActor {
     }
     
     public void log(String msg) {
-        System.out.println("[R" + replicaID + "] " + msg);
+        if (election_manager.coordinatorID != null && election_manager.coordinatorID == replicaID)
+            System.out.println("[R" + replicaID + "*] " + msg);
+        else
+            System.out.println("[R" + replicaID + "] " + msg);
     }
     
     private void scheduleNextHeartbeatReminder() {
