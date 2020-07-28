@@ -20,4 +20,16 @@ public class Update {
     public boolean happensAfter(Update other) {
         return id.happensAfter(other.id);
     }
+    
+    public boolean equals(Update other) {
+        boolean eq = id.equals(other.id);
+        if (eq && value != other.value)
+            System.err.println("!!! Update ids are equal but values differ");
+        return eq;
+    }
+    
+    @Override
+    public String toString() {
+        return id.toString() + ":" + value;
+    }
 }

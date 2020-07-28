@@ -1,13 +1,14 @@
 package main;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 
 /**
  *
  * @author alex
  */
-public class UpdateList {
+public class UpdateList implements Iterable<Update> {
     List<Update> list;
     
     public UpdateList() {
@@ -19,12 +20,13 @@ public class UpdateList {
     }
     
     public void add(Update u) {
-        for (int i = 0; i < list.size(); i++) {
-            if (u.id.happensBefore(list.get(i).id)) {
-                list.add(i, u);
-                break;
-            }
-        }
+        if (list.contains(u))
+            return;
+        
+        int idx = 0;
+        while (idx < list.size() && list.get(idx).id.happensBefore(u.id))
+            idx++;
+        list.add(idx, u);
     }
     
     public Update remove(Update u) {
@@ -46,21 +48,30 @@ public class UpdateList {
         return list.isEmpty();
     }
     
+    public boolean contains(Update u) {
+        return list.contains(u);
+    }
+    
     public Update getMostRecent() {
         if (list.isEmpty())
             return null;
-        return list.get(0);
+        return list.get(list.size()-1);
     }
     
     public UpdateList duplicate() {
-        return new UpdateList();
+        return new UpdateList(list);
     }
     
     @Override
     public String toString() {
         String s = "{";
         for (Update u : list)
-            s += u.id + ", ";
+            s += u + ", ";
         return s + "}";
+    }
+
+    @Override
+    public Iterator<Update> iterator() {
+        return list.iterator();
     }
 }

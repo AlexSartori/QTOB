@@ -1,8 +1,9 @@
 package main;
 
 import akka.actor.ActorRef;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.function.Consumer;
 import main.Messages.*;
 
 /**
@@ -13,10 +14,10 @@ public class ElectionManager {
     ReplicaActor parent;
     public Integer coordinatorID;
     private final TimeoutList election_ack_timers;
-    Runnable new_coord_callback;
+    Consumer<UpdateList> new_coord_callback;
     public boolean electing;
     
-    public ElectionManager(ReplicaActor parent, Runnable new_coord_callback) {
+    public ElectionManager(ReplicaActor parent, Consumer<UpdateList> new_coord_callback) {
         this.parent = parent;
         this.new_coord_callback = new_coord_callback;
         this.coordinatorID = null;
@@ -36,57 +37,26 @@ public class ElectionManager {
     }
     
     private Election createElectionMsg() {
-        ArrayList<Integer> ids = new ArrayList<>();
-        ids.add(parent.replicaID);
+        HashMap<Integer, Update> updates = new HashMap<>();
+        Update most_recent = parent.getMostRecentUpdate();
+        updates.put(parent.replicaID, most_recent);
         
-        UpdateList updates = new UpdateList();
-        updates.add(parent.getMostRecentUpdate());
-        
-        return new Election(ids, updates, parent.replicaID);
-    }
-    
-    private Election expandElectionMsg(Election msg) {
-        ArrayList<Integer> ids = new ArrayList<>(msg.IDs);
-        ids.add(parent.replicaID);
-        
-        UpdateList latest = msg.most_recent_updates;
-        int update_owner = msg.most_recent_update_owner;
-        Update my_latest = parent.getMostRecentUpdate();
-        if (my_latest != null && my_latest.happensAfter(latest.getMostRecent())) {
-            if (QTOB.VERBOSE) parent.log("Adding most recent update to election");
-            latest.add(my_latest);
-            update_owner = parent.replicaID;
-        }
-        
-        return new Election(ids, latest, update_owner);
-    }
-    
-    private int findMaxID(List<Integer> ids) {
-        int max = -1;
-        for (int id : ids)
-            if (id > max)
-                max = id;
-        return max;
+        if (QTOB.VERBOSE) parent.log("Created: " + updates);
+        return new Election(updates);
     }
     
     public void onElection(Election msg) {
+        if (QTOB.VERBOSE) parent.log("onElection, updates=" + msg.most_recent_updates);
         electing = true;
         coordinatorID = null;
         
         int winner_so_far = getWinner(msg);
         ActorRef next = parent.getNextActorInRing();
-        if (QTOB.VERBOSE) parent.log("onElection, IDs=" + msg.IDs);
         
-        if (msg.IDs.contains(parent.replicaID) && winner_so_far == parent.replicaID) {
+        if (msg.most_recent_updates.containsKey(parent.replicaID) && winner_so_far == parent.replicaID) {
             if (QTOB.VERBOSE) parent.log("Won election, synchronizing");
-            // Change to synchronize message type
-            for (int id : parent.nodes_by_id.keySet())
-                if (!parent.crashed_nodes.contains(id))
-                    parent.sendWithNwkDelay(
-                        parent.nodes_by_id.get(id),
-                        new Synchronize(msg.most_recent_updates)
-                    );
-        } else if (!msg.IDs.contains(parent.replicaID)) {
+            Synchronize(msg.most_recent_updates);
+        } else {
             // Add my updates and recirculate
             parent.sendWithNwkDelay(next, expandElectionMsg(msg));
             this.election_ack_timers.addTimer();
@@ -97,10 +67,49 @@ public class ElectionManager {
     }
     
     private int getWinner(Election msg) {
-        if (msg.most_recent_updates.isEmpty())
-            return findMaxID(msg.IDs);
-        else
-            return msg.most_recent_update_owner;
+        Map<Integer, Update> u = msg.most_recent_updates;
+        int update_owner = findMaxID(u.keySet().toArray());
+        Update latest = u.get(update_owner);
+        
+        for (int id : u.keySet())
+            if (u.get(id) != null)
+                if (latest == null || u.get(id).happensAfter(latest)) {
+                    latest = u.get(id);
+                    update_owner = id;
+                }
+        
+        return update_owner;
+    }
+    
+    private Election expandElectionMsg(Election msg) {
+        Map<Integer, Update> updates = new HashMap<>(msg.most_recent_updates);
+        
+        if (!updates.containsKey(parent.replicaID))
+            updates.put(parent.replicaID, parent.getMostRecentUpdate());
+        
+        return new Election(updates);
+    }
+    
+    private int findMaxID(Object[] ids) {
+        int max = -1;
+        for (Object id : ids)
+            if ((int)id > max)
+                max = (int)id;
+        return max;
+    }
+    
+    private void Synchronize(Map<Integer, Update> updates) {
+        UpdateList list = new UpdateList();
+        for (Update u : updates.values())
+            if (u != null)
+                list.add(u);
+
+        for (int id : parent.nodes_by_id.keySet())
+            if (!parent.crashed_nodes.contains(id))
+                parent.sendWithNwkDelay(
+                    parent.nodes_by_id.get(id),
+                    new Synchronize(list)
+                );
     }
     
     public void onElectionAck(ElectionAck msg) {
@@ -123,8 +132,8 @@ public class ElectionManager {
                 break;
             }
         
-        if (QTOB.VERBOSE) parent.log("Recv synch, updates -> " + msg.updates);
+        if (QTOB.VERBOSE) parent.log("Recvd synch, updates -> " + msg.updates);
         electing = false;
-        new_coord_callback.run();
+        new_coord_callback.accept(msg.updates);
     }
 }

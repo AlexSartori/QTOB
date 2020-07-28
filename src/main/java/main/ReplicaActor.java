@@ -61,6 +61,7 @@ public class ReplicaActor extends AbstractActor {
         heartbeat_timer.cancelAll();
         update_req_timers.cancelAll();
         writeok_timers.cancelAll();
+        crashed_nodes.add(replicaID);
     }
     
     public void onCoordinatorCrash() {
@@ -68,9 +69,13 @@ public class ReplicaActor extends AbstractActor {
         election_manager.beginElection();
     }
     
-    public void onNewCoordinator() {
+    public void onNewCoordinator(UpdateList updates) {
         if (QTOB.VERBOSE) log("Coordinator => " + election_manager.coordinatorID);
 	
+        for (Update u : updates)
+            if (!delivered_updates.contains(u))
+                applyWrite(u);
+        
         epoch++;
         if (election_manager.coordinatorID == replicaID) {
             seqNo = 0;
@@ -169,6 +174,9 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onUpdateAck(UpdateAck msg) {
+        if (election_manager.coordinatorID == null)
+            return;
+        
         if (election_manager.coordinatorID != this.replicaID) {
             System.err.println("!!! Received UpdateAck even if not coordinator");
             return;
@@ -196,7 +204,6 @@ public class ReplicaActor extends AbstractActor {
             writeok_timers.cancelTimer(msg.u.id);
         
         applyWrite(msg.u);
-        System.out.println("Replica " + replicaID + " update " + epoch + ":" + seqNo +" " + this.value);    
     }
     
     private void applyWrite(Update u) {
@@ -205,6 +212,8 @@ public class ReplicaActor extends AbstractActor {
         this.value = u.value;
         this.epoch = u.id.epoch; // TODO: not really, check
         this.seqNo = u.id.seqNo;
+        
+        System.out.println("Replica " + replicaID + " update " + epoch + ":" + seqNo + " " + this.value);    
     }
     
     private void onWriteOkTimeout(UpdateID node) {
@@ -221,10 +230,8 @@ public class ReplicaActor extends AbstractActor {
             return;
         
         for (int id : this.nodes_by_id.keySet())
-            if (id != replicaID && !crashed_nodes.contains(id)) {
-                QTOB.simulateNwkDelay();
+            if (id != replicaID && !crashed_nodes.contains(id))
                 sendWithNwkDelay(nodes_by_id.get(id), new Heartbeat());
-            }
         
         scheduleNextHeartbeatReminder();
     }
@@ -274,7 +281,7 @@ public class ReplicaActor extends AbstractActor {
         return receiveBuilder()
             .matchAny(msg -> {
                 if (QTOB.VERBOSE)
-                    log("Crashed but got: " + msg.getClass().getSimpleName());
+                    ; // log("Crashed but got: " + msg.getClass().getSimpleName());
             })
             .build();
     }

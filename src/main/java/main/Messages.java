@@ -4,6 +4,7 @@ import akka.actor.ActorRef;
 import java.io.Serializable;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  *
@@ -19,14 +20,10 @@ public class Messages {
     }
       
     public static class Election implements Serializable {
-        public final List<Integer> IDs;
-        public final UpdateList most_recent_updates; // TODO must be a list!
-        public final int most_recent_update_owner;
+        public final Map<Integer, Update> most_recent_updates;
         
-        public Election(List<Integer> ids, UpdateList most_recent, int update_owner) {
-            this.IDs = Collections.unmodifiableList(ids);
-            this.most_recent_updates = most_recent.duplicate();
-            this.most_recent_update_owner = update_owner;
+        public Election(Map<Integer, Update> most_recent) {
+            this.most_recent_updates = Collections.unmodifiableMap(most_recent);
         }
     }
     
