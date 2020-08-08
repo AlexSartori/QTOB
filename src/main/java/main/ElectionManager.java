@@ -13,7 +13,7 @@ import main.Messages.*;
 public class ElectionManager {
     ReplicaActor parent;
     public Integer coordinatorID;
-    private final TimeoutList election_ack_timers;
+    private final TimeoutList election_ack_timers, election_timers;
     Consumer<UpdateList> new_coord_callback;
     public boolean electing;
     
@@ -22,18 +22,31 @@ public class ElectionManager {
         this.new_coord_callback = new_coord_callback;
         this.coordinatorID = null;
         this.election_ack_timers = new TimeoutList(this::onElectionAckTimeout, QTOB.NWK_TIMEOUT_MS);
-        this.electing = false;
+        this.election_timers = new TimeoutList(this::onElectionTimeout, QTOB.ELECTION_TIMEOUT);
+        setElectingState(false);
     }
     
     public void beginElection() {
         if (electing) return;
         if (QTOB.VERBOSE) parent.log("beginElection()");
-        electing = true;
+        setElectingState(true);
         coordinatorID = null;
         
         Election msg = createElectionMsg();
         parent.sendWithNwkDelay(parent.getNextActorInRing(), msg);
         this.election_ack_timers.addTimer();
+    }
+    
+    private void setElectingState(boolean value) {
+        if (value == electing)
+            return;
+        
+        if (value)
+            election_timers.addTimer();
+        else
+            election_timers.cancelFirstTimer();
+        
+        this.electing = value;
     }
     
     private Election createElectionMsg() {
@@ -47,8 +60,10 @@ public class ElectionManager {
     
     public void onElection(Election msg) {
         if (QTOB.VERBOSE) parent.log("onElection, updates=" + msg.most_recent_updates);
-        electing = true;
         coordinatorID = null;
+        
+        if (!msg.most_recent_updates.containsKey(parent.replicaID))
+            setElectingState(true);
         
         int winner_so_far = getWinner(msg);
         ActorRef next = parent.getNextActorInRing();
@@ -120,6 +135,12 @@ public class ElectionManager {
     private void onElectionAckTimeout() {
         if (QTOB.VERBOSE) parent.log("ElectionAck timeout");
         parent.crashed_nodes.add(parent.getNextIDInRing());
+        setElectingState(false);
+        beginElection();
+    }
+    
+    private void onElectionTimeout() {
+        if (QTOB.VERBOSE) parent.log("===== Election timeout");
         electing = false;
         beginElection();
     }
@@ -133,7 +154,7 @@ public class ElectionManager {
             }
         
         if (QTOB.VERBOSE) parent.log("Recvd synch, updates -> " + msg.updates);
-        electing = false;
+        setElectingState(false);
         new_coord_callback.accept(msg.updates);
     }
 }

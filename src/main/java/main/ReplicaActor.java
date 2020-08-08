@@ -155,7 +155,7 @@ public class ReplicaActor extends AbstractActor {
         UpdateID u_id = new UpdateID(epoch, seqNo);  // be careful with ++
         Update u = new Update(u_id, value);
 
-        this.updateAcks.put(u_id, 0);
+        this.updateAcks.put(u_id, 1);// Count myself
 
         for (int id : nodes_by_id.keySet())
             if (id != replicaID && !crashed_nodes.contains(id))
@@ -184,7 +184,7 @@ public class ReplicaActor extends AbstractActor {
         
         // Wait for Q acks and propagate writeok to everyone
         int curr_acks = incrementUpdateAcks(msg.u.id);
-        int Q = Math.floorDiv(nodes_by_id.size() - crashed_nodes.size(), 2) + 1;
+        int Q = Math.floorDiv(nodes_by_id.size(), 2) + 1;
         
         if (curr_acks == Q) {
             for (int id : nodes_by_id.keySet())
