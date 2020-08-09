@@ -13,7 +13,7 @@ import main.Messages.*;
 public class ElectionManager {
     ReplicaActor parent;
     public Integer coordinatorID;
-    private final TimeoutList election_ack_timers, election_timers;
+    public final TimeoutList election_ack_timers, election_timers;
     Consumer<UpdateList> new_coord_callback;
     public boolean electing;
     
@@ -28,6 +28,12 @@ public class ElectionManager {
     
     public void beginElection() {
         if (electing) return;
+        
+        if (CrashHandler.getInstance().shouldCrash(parent.replicaID, CrashHandler.Situation.ON_BEGIN_ELECTION)) {
+            parent.setStateToCrashed();
+            return;
+        }
+        
         if (QTOB.VERBOSE) parent.log("beginElection()");
         setElectingState(true);
         coordinatorID = null;
@@ -59,26 +65,39 @@ public class ElectionManager {
     }
     
     public void onElection(Election msg) {
+        // Send back an ElectionAck to the ELECTION sender
+        parent.sendWithNwkDelay(parent.getSender(), new ElectionAck(parent.replicaID));
+        
+        if (CrashHandler.getInstance().shouldCrash(parent.replicaID, CrashHandler.Situation.ON_ELECTION_ACK_SND)) {
+            parent.setStateToCrashed();
+            return;
+        }
+        
+        if (CrashHandler.getInstance().shouldCrash(parent.replicaID, CrashHandler.Situation.ON_ELECTION_MSG_RCV)) {
+            parent.setStateToCrashed();
+            return;
+        }
+        
         if (QTOB.VERBOSE) parent.log("onElection, updates=" + msg.most_recent_updates);
         coordinatorID = null;
         
         if (!msg.most_recent_updates.containsKey(parent.replicaID))
             setElectingState(true);
         
-        int winner_so_far = getWinner(msg);
-        ActorRef next = parent.getNextActorInRing();
+        boolean won = msg.most_recent_updates.containsKey(parent.replicaID) && getWinner(msg) == parent.replicaID;
         
-        if (msg.most_recent_updates.containsKey(parent.replicaID) && winner_so_far == parent.replicaID) {
+        if (won) {
             if (QTOB.VERBOSE) parent.log("Won election, synchronizing");
             Synchronize(msg.most_recent_updates);
         } else {
             // Add my updates and recirculate
-            parent.sendWithNwkDelay(next, expandElectionMsg(msg));
+            parent.sendWithNwkDelay(parent.getNextActorInRing(), expandElectionMsg(msg));
             this.election_ack_timers.addTimer();
+            if (CrashHandler.getInstance().shouldCrash(parent.replicaID, CrashHandler.Situation.ON_ELECTION_MSG_SND)) {
+                parent.setStateToCrashed();
+                return;
+            }
         }
-        
-        // Send back an ElectionAck to the ELECTION sender
-        parent.sendWithNwkDelay(parent.getSender(), new ElectionAck(parent.replicaID));
     }
     
     private int getWinner(Election msg) {
@@ -114,6 +133,11 @@ public class ElectionManager {
     }
     
     private void Synchronize(Map<Integer, Update> updates) {
+        if (CrashHandler.getInstance().shouldCrash(parent.replicaID, CrashHandler.Situation.ON_BEGIN_SYNCH)) {
+            parent.setStateToCrashed();
+            return;
+        }
+        
         UpdateList list = new UpdateList();
         for (Update u : updates.values())
             if (u != null)
@@ -128,6 +152,11 @@ public class ElectionManager {
     }
     
     public void onElectionAck(ElectionAck msg) {
+        if (CrashHandler.getInstance().shouldCrash(parent.replicaID, CrashHandler.Situation.ON_ELECTION_ACK_RCV)) {
+            parent.setStateToCrashed();
+            return;
+        }
+        
         if (QTOB.VERBOSE) parent.log("ElectionAck from " + msg.from);
         this.election_ack_timers.cancelFirstTimer();
     }
@@ -146,6 +175,11 @@ public class ElectionManager {
     }
     
     public void onSynchronize(Synchronize msg) {
+        if (CrashHandler.getInstance().shouldCrash(parent.replicaID, CrashHandler.Situation.ON_SYNCH_MSG)) {
+            parent.setStateToCrashed();
+            return;
+        }
+        
         ActorRef coord = parent.getSender();
         for (int id : parent.nodes_by_id.keySet())
             if (parent.nodes_by_id.get(id) == coord) {

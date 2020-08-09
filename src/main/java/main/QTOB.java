@@ -42,7 +42,7 @@ public class QTOB {
         initializeActors(replicas, clients);
         
         // Schedule random crashes
-        scheduleCrashes(replicas);
+        scheduleCrashes();
         
         // Handle termination
         waitForKeypress();
@@ -78,20 +78,12 @@ public class QTOB {
             r.tell(msg, ActorRef.noSender());
     }
 
-    private static void scheduleCrashes(List<ActorRef> replicas) {
-        int[] who  = new int[] {6, 2, 3}; // RNG.nextInt(Math.floorDiv(N_REPLICAS, 2));
-        int[] when = new int[] {1, 2, 3}; // 2 + RNG.nextInt(5);
-        System.out.println(who.length + " replica(s) will crash.");
+    private static void scheduleCrashes() {
+        CrashHandler ch = CrashHandler.getInstance();
         
-        for (int i = 0; i < who.length; i++) {
-            akka.scheduler().scheduleOnce(
-                Duration.create(when[i], TimeUnit.SECONDS), // When
-                replicas.get(who[i]), // To whom
-                new CrashMsg(),       // Msg to send
-                akka.dispatcher(),    // System dispatcher
-                ActorRef.noSender()   // Source of the msg
-            );
-        }
+        ch.scheduleCrash(6, CrashHandler.Situation.ON_ELECTION_ACK_SND);
+        ch.scheduleCrash(3, CrashHandler.Situation.ON_ELECTION_ACK_SND);
+        ch.scheduleCrash(1, CrashHandler.Situation.ON_ELECTION_ACK_SND);
     }
 
     public static void waitForKeypress() {

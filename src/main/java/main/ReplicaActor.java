@@ -55,21 +55,33 @@ public class ReplicaActor extends AbstractActor {
         return Props.create(ReplicaActor.class, () -> new ReplicaActor(ID, value));
     }
     
-    private void setStateToCrashed() {
+    public void setStateToCrashed() {
         log("Setting state to CRASHED");
         getContext().become(crashed());
         heartbeat_timer.cancelAll();
         update_req_timers.cancelAll();
         writeok_timers.cancelAll();
+        election_manager.election_ack_timers.cancelAll();
+        election_manager.election_timers.cancelAll();
         crashed_nodes.add(replicaID);
     }
     
     public void onCoordinatorCrash() {
+        if (CrashHandler.getInstance().shouldCrash(replicaID, CrashHandler.Situation.ON_COORD_CRASH)) {
+            setStateToCrashed();
+            return;
+        }
+        
         crashed_nodes.add(election_manager.coordinatorID);
         election_manager.beginElection();
     }
     
     public void onNewCoordinator(UpdateList updates) {
+        if (CrashHandler.getInstance().shouldCrash(replicaID, CrashHandler.Situation.ON_NEW_COORD)) {
+            setStateToCrashed();
+            return;
+        }
+        
         if (QTOB.VERBOSE) log("Coordinator => " + election_manager.coordinatorID);
 	
         for (Update u : updates)
@@ -124,7 +136,11 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onReadRequest(ReadRequest req) {
-        // System.out.println("Replica " + replicaID + " read request");
+        if (CrashHandler.getInstance().shouldCrash(replicaID, CrashHandler.Situation.ON_READ_REQ)) {
+            setStateToCrashed();
+            return;
+        }
+        
         sendWithNwkDelay(req.client, new ReadResponse(this.value));
         
         if (election_manager.coordinatorID == null)
@@ -132,6 +148,11 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onWriteRequest(WriteRequest req) {
+        if (CrashHandler.getInstance().shouldCrash(replicaID, CrashHandler.Situation.ON_WRITE_REQ)) {
+            setStateToCrashed();
+            return;
+        }
+        
         if (election_manager.electing || election_manager.coordinatorID == null) {
             election_manager.beginElection();
             if (QTOB.VERBOSE) log("Election in progress, dropping write request");
@@ -157,23 +178,42 @@ public class ReplicaActor extends AbstractActor {
 
         this.updateAcks.put(u_id, 1);// Count myself
 
+        if (CrashHandler.getInstance().shouldCrash(replicaID, CrashHandler.Situation.ON_UPDATE_MSG_SND)) {
+            setStateToCrashed();
+            return;
+        }
+        
         for (int id : nodes_by_id.keySet())
             if (id != replicaID && !crashed_nodes.contains(id))
                 sendWithNwkDelay(nodes_by_id.get(id), new UpdateMsg(u));
     }
     
     private void onUpdateMsg(UpdateMsg msg) {
+        if (CrashHandler.getInstance().shouldCrash(replicaID, CrashHandler.Situation.ON_UPDATE_MSG_RCV)) {
+            setStateToCrashed();
+            return;
+        }
+        
         if (update_req_timers.containsKey(msg.u.value)) {
             update_req_timers.cancelTimer(msg.u.value);
             writeok_timers.addTimer(msg.u.id);
         }
         
-        // if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " " + unstable_updates.size() + " unstable updates in queue");
+        
+        if (CrashHandler.getInstance().shouldCrash(replicaID, CrashHandler.Situation.ON_UPDATE_ACK_SND)) {
+            setStateToCrashed();
+            return;
+        }
         this.unstable_updates.add(msg.u);
         sendWithNwkDelay(getSender(), new UpdateAck(msg.u));
     }
     
     private void onUpdateAck(UpdateAck msg) {
+        if (CrashHandler.getInstance().shouldCrash(replicaID, CrashHandler.Situation.ON_UPDATE_ACK_RCV)) {
+            setStateToCrashed();
+            return;
+        }
+        
         if (election_manager.coordinatorID == null)
             return;
         
@@ -200,6 +240,11 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onWriteOk(WriteOk msg) {
+        if (CrashHandler.getInstance().shouldCrash(replicaID, CrashHandler.Situation.ON_WRITE_OK)) {
+            setStateToCrashed();
+            return;
+        }
+        
         if (writeok_timers.containsKey(msg.u.id))
             writeok_timers.cancelTimer(msg.u.id);
         
@@ -242,7 +287,11 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onHeartbeat(Heartbeat msg) {
-        // if (QTOB.VERBOSE) System.out.println("Replica " + replicaID + " HB received");
+        if (CrashHandler.getInstance().shouldCrash(replicaID, CrashHandler.Situation.ON_HEARTBEAT)) {
+            setStateToCrashed();
+            return;
+        }
+        
         try { heartbeat_timer.cancelFirstTimer(); }
         catch (Exception e) { } // First heartbeat
         heartbeat_timer.addTimer();
@@ -254,6 +303,11 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onInitializeGroup(InitializeGroup msg) {
+        if (CrashHandler.getInstance().shouldCrash(replicaID, CrashHandler.Situation.ON_INIT)) {
+            setStateToCrashed();
+            return;
+        }
+        
         for (int i = 0; i < msg.group.size(); i++)
             this.nodes_by_id.put(i, msg.group.get(i));
     }
