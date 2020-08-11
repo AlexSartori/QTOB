@@ -125,22 +125,23 @@ public class ElectionManager {
     }
     
     private void Synchronize(Map<Integer, Update> updates) {
-        if (CrashHandler.getInstance().shouldCrash(parent.replicaID, CrashHandler.Situation.ON_SYNCH_SND)) {
-            parent.setStateToCrashed();
-            return;
-        }
-        
         UpdateList list = new UpdateList();
         for (Update u : updates.values())
             if (u != null)
                 list.add(u);
 
         for (int id : parent.nodes_by_id.keySet())
-            if (!parent.crashed_nodes.contains(id))
+            if (!parent.crashed_nodes.contains(id)) {
                 parent.sendWithNwkDelay(
                     parent.nodes_by_id.get(id),
                     new Synchronize(list)
                 );
+        
+                if (CrashHandler.getInstance().shouldCrash(parent.replicaID, CrashHandler.Situation.ON_SYNCH_SND)) {
+                    parent.setStateToCrashed();
+                    return;
+                }
+            }
     }
     
     public void onElectionAck(ElectionAck msg) {

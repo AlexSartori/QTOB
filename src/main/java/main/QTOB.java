@@ -15,7 +15,7 @@ import main.Messages.*;
  */
 public class QTOB {
     final static boolean VERBOSE = true;
-    final static int N_CLIENTS = 1;
+    final static int N_CLIENTS = 3;
     final static int N_REPLICAS = 7;
     final static int MAX_NWK_DELAY_MS = 50;
     
@@ -79,7 +79,7 @@ public class QTOB {
     private static void scheduleCrashes() {
         CrashHandler ch = CrashHandler.getInstance();
         
-        ch.scheduleCrash(6, CrashHandler.Situation.ON_WRITE_OK_SND);
+        ch.scheduleCrash(6, CrashHandler.Situation.ON_ELECTION_ACK_SND);
     }
 
     public static void waitForKeypress() {

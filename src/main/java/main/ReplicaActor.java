@@ -179,13 +179,14 @@ public class ReplicaActor extends AbstractActor {
         this.updateAcks.put(u_id, 1);// Count myself
 
         for (int id : nodes_by_id.keySet())
-            if (id != replicaID && !crashed_nodes.contains(id))
+            if (id != replicaID && !crashed_nodes.contains(id)) {
                 sendWithNwkDelay(nodes_by_id.get(id), new UpdateMsg(u));
         
-        if (CrashHandler.getInstance().shouldCrash(replicaID, CrashHandler.Situation.ON_UPDATE_MSG_SND)) {
-            setStateToCrashed();
-            return;
-        }
+                if (CrashHandler.getInstance().shouldCrash(replicaID, CrashHandler.Situation.ON_UPDATE_MSG_SND)) {
+                    setStateToCrashed();
+                    return;
+                }
+            }
     }
     
     private void onUpdateMsg(UpdateMsg msg) {
@@ -199,13 +200,13 @@ public class ReplicaActor extends AbstractActor {
             writeok_timers.addTimer(msg.u.id);
         }
         
+        this.unstable_updates.add(msg.u);
+        sendWithNwkDelay(getSender(), new UpdateAck(msg.u));
         
         if (CrashHandler.getInstance().shouldCrash(replicaID, CrashHandler.Situation.ON_UPDATE_ACK_SND)) {
             setStateToCrashed();
             return;
         }
-        this.unstable_updates.add(msg.u);
-        sendWithNwkDelay(getSender(), new UpdateAck(msg.u));
     }
     
     private void onUpdateAck(UpdateAck msg) {
@@ -228,13 +229,14 @@ public class ReplicaActor extends AbstractActor {
         
         if (curr_acks == Q) {
             for (int id : nodes_by_id.keySet())
-                if (!crashed_nodes.contains(id))
+                if (!crashed_nodes.contains(id)) {
                     sendWithNwkDelay(nodes_by_id.get(id), new WriteOk(msg.u));
             
-            if (CrashHandler.getInstance().shouldCrash(replicaID, CrashHandler.Situation.ON_WRITE_OK_SND)) {
-                setStateToCrashed();
-                return;
-            }
+                    if (CrashHandler.getInstance().shouldCrash(replicaID, CrashHandler.Situation.ON_WRITE_OK_SND)) {
+                        setStateToCrashed();
+                        return;
+                    }
+                }
         }
     }
     
