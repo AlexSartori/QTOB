@@ -20,7 +20,8 @@ public class CrashHandler {
         ON_UPDATE_MSG_RCV,
         ON_UPDATE_ACK_SND,
         ON_UPDATE_ACK_RCV,
-        ON_WRITE_OK,
+        ON_WRITE_OK_SND,
+        ON_WRITE_OK_RCV,
         ON_HEARTBEAT,
         ON_NEW_COORD,
         ON_COORD_CRASH,
@@ -29,8 +30,8 @@ public class CrashHandler {
         ON_ELECTION_MSG_RCV,
         ON_ELECTION_ACK_SND,
         ON_ELECTION_ACK_RCV,
-        ON_BEGIN_SYNCH,
-        ON_SYNCH_MSG
+        ON_SYNCH_SND,
+        ON_SYNCH_RCV
     }
     
     private final Map<Integer, List<Situation>> crashes;

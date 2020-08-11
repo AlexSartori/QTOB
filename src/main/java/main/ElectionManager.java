@@ -23,7 +23,7 @@ public class ElectionManager {
         this.coordinatorID = null;
         this.election_ack_timers = new TimeoutList(this::onElectionAckTimeout, QTOB.NWK_TIMEOUT_MS);
         this.election_timers = new TimeoutList(this::onElectionTimeout, QTOB.ELECTION_TIMEOUT);
-        setElectingState(false);
+        this.electing = false;
     }
     
     public void beginElection() {
@@ -35,24 +35,13 @@ public class ElectionManager {
         }
         
         if (QTOB.VERBOSE) parent.log("beginElection()");
-        setElectingState(true);
+        electing = true;
         coordinatorID = null;
+        election_timers.addTimer();
         
         Election msg = createElectionMsg();
         parent.sendWithNwkDelay(parent.getNextActorInRing(), msg);
         this.election_ack_timers.addTimer();
-    }
-    
-    private void setElectingState(boolean value) {
-        if (value == electing)
-            return;
-        
-        if (value)
-            election_timers.addTimer();
-        else
-            election_timers.cancelFirstTimer();
-        
-        this.electing = value;
     }
     
     private Election createElectionMsg() {
@@ -65,6 +54,13 @@ public class ElectionManager {
     }
     
     public void onElection(Election msg) {
+        if (CrashHandler.getInstance().shouldCrash(parent.replicaID, CrashHandler.Situation.ON_ELECTION_MSG_RCV)) {
+            parent.setStateToCrashed();
+            return;
+        }
+        if (QTOB.VERBOSE) parent.log("onElection, updates=" + msg.most_recent_updates);
+        coordinatorID = null;
+        
         // Send back an ElectionAck to the ELECTION sender
         parent.sendWithNwkDelay(parent.getSender(), new ElectionAck(parent.replicaID));
         
@@ -73,16 +69,12 @@ public class ElectionManager {
             return;
         }
         
-        if (CrashHandler.getInstance().shouldCrash(parent.replicaID, CrashHandler.Situation.ON_ELECTION_MSG_RCV)) {
-            parent.setStateToCrashed();
-            return;
+        if (!msg.most_recent_updates.containsKey(parent.replicaID)) {
+            //if (electing && election_timers.size() > 0)
+            //    election_timers.cancelFirstTimer();
+            electing = true;
+            election_timers.addTimer();
         }
-        
-        if (QTOB.VERBOSE) parent.log("onElection, updates=" + msg.most_recent_updates);
-        coordinatorID = null;
-        
-        if (!msg.most_recent_updates.containsKey(parent.replicaID))
-            setElectingState(true);
         
         boolean won = msg.most_recent_updates.containsKey(parent.replicaID) && getWinner(msg) == parent.replicaID;
         
@@ -133,7 +125,7 @@ public class ElectionManager {
     }
     
     private void Synchronize(Map<Integer, Update> updates) {
-        if (CrashHandler.getInstance().shouldCrash(parent.replicaID, CrashHandler.Situation.ON_BEGIN_SYNCH)) {
+        if (CrashHandler.getInstance().shouldCrash(parent.replicaID, CrashHandler.Situation.ON_SYNCH_SND)) {
             parent.setStateToCrashed();
             return;
         }
@@ -163,19 +155,20 @@ public class ElectionManager {
     
     private void onElectionAckTimeout() {
         if (QTOB.VERBOSE) parent.log("ElectionAck timeout");
-        parent.crashed_nodes.add(parent.getNextIDInRing());
-        setElectingState(false);
-        beginElection();
+        if (electing) parent.crashed_nodes.add(parent.getNextIDInRing()); // Election might have already stopped
+        electing = false;
+        election_timers.cancelFirstTimer();
+        //beginElection();
     }
     
     private void onElectionTimeout() {
-        if (QTOB.VERBOSE) parent.log("===== Election timeout");
+        if (QTOB.VERBOSE) parent.log("Election timeout");
         electing = false;
-        beginElection();
+        // beginElection();
     }
     
     public void onSynchronize(Synchronize msg) {
-        if (CrashHandler.getInstance().shouldCrash(parent.replicaID, CrashHandler.Situation.ON_SYNCH_MSG)) {
+        if (CrashHandler.getInstance().shouldCrash(parent.replicaID, CrashHandler.Situation.ON_SYNCH_RCV)) {
             parent.setStateToCrashed();
             return;
         }
@@ -188,7 +181,9 @@ public class ElectionManager {
             }
         
         if (QTOB.VERBOSE) parent.log("Recvd synch, updates -> " + msg.updates);
-        setElectingState(false);
+        electing = false;
+        if (election_timers.size() > 0)
+            election_timers.cancelFirstTimer();
         new_coord_callback.accept(msg.updates);
     }
 }

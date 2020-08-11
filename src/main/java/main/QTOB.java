@@ -6,9 +6,7 @@ import java.util.List;
 import java.util.ArrayList;
 import java.io.IOException;
 import java.util.Random;
-import java.util.concurrent.TimeUnit;
 import main.Messages.*;
-import scala.concurrent.duration.Duration;
 
 
 /**
@@ -17,13 +15,13 @@ import scala.concurrent.duration.Duration;
  */
 public class QTOB {
     final static boolean VERBOSE = true;
-    final static int N_CLIENTS = 4;
+    final static int N_CLIENTS = 1;
     final static int N_REPLICAS = 7;
     final static int MAX_NWK_DELAY_MS = 50;
     
-    final static int NWK_TIMEOUT_MS = 200*N_REPLICAS + 100;
+    final static int NWK_TIMEOUT_MS = 500*N_REPLICAS + 200;
     final static int HEARTBEAT_DELAY_MS = 200;
-    final static int HEARTBEAT_TIMEOUT_MS = 500*N_REPLICAS + 100;
+    final static int HEARTBEAT_TIMEOUT_MS = 500*N_REPLICAS + 200;
     final static int ELECTION_TIMEOUT = 700*N_REPLICAS;
     
     final static Random RNG = new Random();
@@ -81,9 +79,7 @@ public class QTOB {
     private static void scheduleCrashes() {
         CrashHandler ch = CrashHandler.getInstance();
         
-        ch.scheduleCrash(6, CrashHandler.Situation.ON_ELECTION_ACK_SND);
-        ch.scheduleCrash(3, CrashHandler.Situation.ON_ELECTION_ACK_SND);
-        ch.scheduleCrash(1, CrashHandler.Situation.ON_ELECTION_ACK_SND);
+        ch.scheduleCrash(6, CrashHandler.Situation.ON_WRITE_OK_SND);
     }
 
     public static void waitForKeypress() {

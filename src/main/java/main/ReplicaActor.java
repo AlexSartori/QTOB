@@ -178,14 +178,14 @@ public class ReplicaActor extends AbstractActor {
 
         this.updateAcks.put(u_id, 1);// Count myself
 
+        for (int id : nodes_by_id.keySet())
+            if (id != replicaID && !crashed_nodes.contains(id))
+                sendWithNwkDelay(nodes_by_id.get(id), new UpdateMsg(u));
+        
         if (CrashHandler.getInstance().shouldCrash(replicaID, CrashHandler.Situation.ON_UPDATE_MSG_SND)) {
             setStateToCrashed();
             return;
         }
-        
-        for (int id : nodes_by_id.keySet())
-            if (id != replicaID && !crashed_nodes.contains(id))
-                sendWithNwkDelay(nodes_by_id.get(id), new UpdateMsg(u));
     }
     
     private void onUpdateMsg(UpdateMsg msg) {
@@ -230,6 +230,11 @@ public class ReplicaActor extends AbstractActor {
             for (int id : nodes_by_id.keySet())
                 if (!crashed_nodes.contains(id))
                     sendWithNwkDelay(nodes_by_id.get(id), new WriteOk(msg.u));
+            
+            if (CrashHandler.getInstance().shouldCrash(replicaID, CrashHandler.Situation.ON_WRITE_OK_SND)) {
+                setStateToCrashed();
+                return;
+            }
         }
     }
     
@@ -240,7 +245,7 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onWriteOk(WriteOk msg) {
-        if (CrashHandler.getInstance().shouldCrash(replicaID, CrashHandler.Situation.ON_WRITE_OK)) {
+        if (CrashHandler.getInstance().shouldCrash(replicaID, CrashHandler.Situation.ON_WRITE_OK_RCV)) {
             setStateToCrashed();
             return;
         }
@@ -298,6 +303,7 @@ public class ReplicaActor extends AbstractActor {
     }
     
     private void onHeartbeatTimeout() {
+        if (election_manager.electing) return;
         if (QTOB.VERBOSE) log("Heartbeat timeout");
         onCoordinatorCrash();
     }

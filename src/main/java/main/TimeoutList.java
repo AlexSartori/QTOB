@@ -45,4 +45,8 @@ public class TimeoutList {
         while (!this.timers.isEmpty())
             cancelFirstTimer();
     }
+    
+    public int size() {
+        return this.timers.size();
+    }
 }
