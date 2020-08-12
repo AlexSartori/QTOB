@@ -37,11 +37,6 @@ public class ClientActor extends AbstractActor {
         System.out.println("[C" + clientID + "] " + msg);
     }
     
-    @Override
-    public void preStart() {
-        scheduleRequests();
-    }
-    
     private void scheduleRequests() {
         getContext().system().scheduler().scheduleWithFixedDelay(
             Duration.create(RNG.nextInt(4), TimeUnit.SECONDS), // When to start
@@ -103,6 +98,7 @@ public class ClientActor extends AbstractActor {
             this.replicas.add(a);
         
         chooseTargetReplica();
+        scheduleRequests();
     }
     
     @Override
